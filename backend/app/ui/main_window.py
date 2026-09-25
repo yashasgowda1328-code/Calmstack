@@ -9,19 +9,23 @@ from PySide6.QtWidgets import (
 from PySide6.QtCore import Qt, QTimer, Signal
 import sys
 import os
-from pathlib import Path
 
 # Add backend to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
 
 from app.ui.styles import apply_stylesheet, COLORS
 from app.ui.sidebar import Sidebar
-from app.ui.evidence import EvidencePage, RecoveredPage, PlaceholderPage
+from app.ui.evidence import EvidencePage
+from app.ui.recovered_page import RecoveredPage
 from app.ui.deleted_recovery import DeletedDataRecoveryPage
 from app.ui.dashboard import DashboardPage
 from app.ui.cases import CasesPage
-from app.storage.database import initialize_database, get_database_stats
+from app.ui.filtered_files import FilteredFilesPage
+from app.ui.fragments_page import FragmentsPage
+from app.ui.reports_page import ReportsPage
+from app.storage.database import initialize_database
 from app.core_engine.engine import CoreEngine
+from app.ui.session import SESSION
 
 
 class MainWindow(QMainWindow):
@@ -70,6 +74,9 @@ class MainWindow(QMainWindow):
         self.pages["dashboard"] = DashboardPage()
         self.pages["dashboard"].create_case_requested.connect(self._create_case_from_dashboard)
         self.pages["dashboard"].open_case_requested.connect(self._open_case_from_dashboard)
+        self.pages["dashboard"].analyze_evidence_requested.connect(self._on_dashboard_analyze_evidence)
+        self.pages["dashboard"].analyze_single_requested.connect(self._on_dashboard_analyze_single)
+        self.pages["dashboard"].recover_deleted_requested.connect(self._on_dashboard_recover_deleted)
         self.content_stack.addWidget(self.pages["dashboard"])
         
         # Evidence / Files
@@ -78,22 +85,22 @@ class MainWindow(QMainWindow):
         self.pages["evidence"].folder_selected.connect(self._on_folder_selected)
         self.content_stack.addWidget(self.pages["evidence"])
         
-        # All Files (same as evidence for now, filtered view)
-        self.pages["all_files"] = PlaceholderPage(
-            "All Files",
-            "This view will show all discovered files across cases.\n"
-            "Implementation pending."
-        )
+        # All Files (filtered view of the evidence dataset)
+        self.pages["all_files"] = FilteredFilesPage("All Files", None, "All files across all cases")
         self.content_stack.addWidget(self.pages["all_files"])
         
         # Status filter pages
-        for status in ["healthy", "suspicious", "corrupted", "fragments"]:
-            self.pages[status] = PlaceholderPage(
+        for status in ["healthy", "suspicious", "corrupted"]:
+            self.pages[status] = FilteredFilesPage(
                 status.capitalize(),
-                f"This view will show files classified as {status}.\n"
-                "Run analysis on evidence folder to populate."
+                status.upper(),
+                f"Files classified as {status}"
             )
             self.content_stack.addWidget(self.pages[status])
+        
+        # Fragments page
+        self.pages["fragments"] = FragmentsPage()
+        self.content_stack.addWidget(self.pages["fragments"])
         
         # Recovered
         self.pages["recovered"] = RecoveredPage()
@@ -107,11 +114,7 @@ class MainWindow(QMainWindow):
         self.pages["evidence"].recovered_page_ref = self.pages["recovered"]
         
         # Reports
-        self.pages["reports"] = PlaceholderPage(
-            "Reports",
-            "Investigation reports will appear here.\n"
-            "Generate reports after reconstruction to populate."
-        )
+        self.pages["reports"] = ReportsPage()
         self.content_stack.addWidget(self.pages["reports"])
         
         # Cases (reusing existing)
@@ -127,43 +130,50 @@ class MainWindow(QMainWindow):
         if page_id in self.pages:
             self.content_stack.setCurrentWidget(self.pages[page_id])
             self.current_page = page_id
+            self.sidebar.set_page(page_id)
+            page = self.pages[page_id]
+            if hasattr(page, "refresh"):
+                try:
+                    page.refresh()
+                except Exception:
+                    pass
+            if page_id == "dashboard":
+                try:
+                    self.pages["dashboard"].refresh_metrics()
+                except Exception:
+                    pass
     
     def _on_navigation_changed(self, page_id: str):
         """Handle sidebar navigation."""
         self._show_page(page_id)
     
+    def _on_dashboard_analyze_evidence(self):
+        """Start folder analysis from the dashboard."""
+        self._show_page("evidence")
+        evidence_page = self.pages["evidence"]
+        if evidence_page.get_evidence_folder():
+            self._on_analyze_evidence(evidence_page.get_evidence_folder())
+        else:
+            evidence_page._select_folder()
+    
+    def _on_dashboard_analyze_single(self):
+        """Start single-file analysis from the dashboard."""
+        self._show_page("evidence")
+        self.pages["evidence"]._on_analyze_single_clicked()
+    
+    def _on_dashboard_recover_deleted(self):
+        """Navigate to deleted data recovery from the dashboard."""
+        self._show_page("deleted_recovery")
+    
     def _check_system_status(self):
-        """Check and update system status indicators."""
-        # Check database
-        try:
-            stats = get_database_stats()
-            self.sidebar.update_status("database", "ready", "Connected")
-            if "dashboard" in self.pages:
-                self.pages["dashboard"].update_status("database", "ready", "Connected")
-        except Exception as e:
-            self.sidebar.update_status("database", "error", f"Error: {str(e)[:30]}")
-        
-        # Check Core Engine
-        try:
-            # Quick test
-            test_engine = CoreEngine()
-            self.sidebar.update_status("engine", "ready", "Ready")
-            if "dashboard" in self.pages:
-                self.pages["dashboard"].update_status("engine", "ready", "Ready")
-        except Exception as e:
-            self.sidebar.update_status("engine", "error", f"Error: {str(e)[:30]}")
-        
-        # Check Storage
-        try:
-            upload_dir = Path("uploads")
-            upload_dir.mkdir(parents=True, exist_ok=True)
-            reconstructed_dir = Path("storage/reconstructed")
-            reconstructed_dir.mkdir(parents=True, exist_ok=True)
-            self.sidebar.update_status("storage", "ready", "Ready")
-            if "dashboard" in self.pages:
-                self.pages["dashboard"].update_status("storage", "ready", "Ready")
-        except Exception as e:
-            self.sidebar.update_status("storage", "error", f"Error: {str(e)[:30]}")
+        """Check and update system status indicators from the real subsystems."""
+        dashboard = self.pages.get("dashboard")
+        if dashboard is not None and hasattr(dashboard, "check_health"):
+            dashboard.check_health()
+            for component in ("engine", "database", "storage"):
+                reported = dashboard.status_strip.state_for(component)
+                if reported:
+                    self.sidebar.update_status(component, reported[0], reported[1])
     
     def _load_initial_data(self):
         """Load any initial data."""
@@ -185,9 +195,13 @@ class MainWindow(QMainWindow):
     def _on_case_selected(self, case_id: str):
         """Handle case selection."""
         self.current_case_id = case_id
-        self.sidebar.set_page("evidence")
+        from app.storage.database import get_case
+
+        case = get_case(case_id) or {}
+        name = case.get("name") or case_id[:8]
+        SESSION.set_case(case_id, name)
+        SESSION.log_activity(f"Opened case {name}", "case")
         self._show_page("evidence")
-        # Could auto-load case's evidence folder here
     
     def _on_folder_selected(self, folder_path: str):
         """Handle evidence folder selection."""

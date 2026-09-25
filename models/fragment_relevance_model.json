@@ -1,0 +1,23 @@
+{
+  "model_type": "RandomForestClassifier",
+  "n_estimators": 100,
+  "max_depth": 10,
+  "feature_names": [
+    "fragment_size_normalized",
+    "entropy",
+    "unique_byte_count",
+    "null_byte_count",
+    "avg_byte_frequency",
+    "max_byte_frequency",
+    "is_complete_fragment",
+    "header_match",
+    "data_density",
+    "low_entropy_ratio"
+  ],
+  "data_type": "SYNTHETIC/CONTROLLED",
+  "trained": true,
+  "thresholds": {
+    "high_relevance_min": 0.8,
+    "uncertain_min": 0.6
+  }
+}
