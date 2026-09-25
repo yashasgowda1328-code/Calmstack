@@ -11,86 +11,110 @@
 
 ## 📌 Problem Statement
 
-Data can become unavailable because of accidental deletion, file-system corruption, damaged storage, ransomware incidents, fragmentation, partial overwriting, or deliberate attempts to destroy evidence.
+Accidental deletion, file-system corruption, damaged storage, ransomware incidents, fragmentation, and deliberate attempts to destroy evidence can make digital information partially or completely inaccessible.
 
-Traditional recovery tools mainly focus on retrieving recoverable files. However, recovered data can still be:
+Traditional recovery tools mainly focus on retrieving files. Recovered data may still be fragmented, corrupted, duplicated, incomplete, or difficult to interpret.
 
-* Fragmented
-* Corrupted
-* Duplicated
-* Incomplete
-* Difficult to interpret
-* Difficult to prioritize
-
-The challenge is not only to recover data, but to determine **which recovered fragments are related, what can realistically be reconstructed, how reliable the reconstruction is, and what should be examined first**.
+The challenge is to identify what can realistically be recovered, determine relationships between recovered fragments, reconstruct possible files, assess their integrity, and prioritize the results for further examination.
 
 ---
 
 ## 💡 Solution
 
-**ReConstructAI** is an AI-assisted recovery and digital evidence reconstruction platform that combines forensic analysis with intelligent fragment relationship analysis.
+**ReConstructAI** is a desktop-based intelligent forensic file recovery and evidence reconstruction workspace.
 
-The system follows:
+Instead of simply recovering files, ReConstructAI analyzes a collection of damaged or fragmented evidence and helps determine:
 
-**Recover → Analyze → Relate → Reconstruct → Validate → Prioritize → Report**
+* What was found
+* Which fragments may belong together
+* What can be reconstructed
+* How reliable the reconstruction is
+* Which results should be examined first
 
-It works on controlled damaged/fragmented datasets or supported forensic images and produces an investigator-friendly recovery analysis.
+### Core Pipeline
+
+```text
+Evidence
+   ↓
+Analyze
+   ↓
+Detect Fragments
+   ↓
+Extract Features
+   ↓
+Find Relationships
+   ↓
+AI-Assisted Scoring
+   ↓
+Reconstruct Candidates
+   ↓
+Validate
+   ↓
+Prioritize
+   ↓
+Report
+```
 
 ---
 
 # ✨ Core Features
 
-### 🔐 1. Evidence Ingestion
+### 📂 1. Case & Evidence Management
 
-* Upload supported sample evidence/datasets
-* Create unique scan sessions
-* Calculate SHA-256 hashes
-* Preserve original input for analysis
+* Create investigation cases
+* Select local evidence folders
+* Browse files and recovered artifacts
+* Preserve original evidence during analysis
+* Maintain case-level analysis metadata
 
-### 🔎 2. File & Fragment Recovery
+### 🔎 2. Intelligent File Analysis
 
-Detect recoverable content using:
+Analyze files using:
 
-* File signatures / magic bytes
-* File structure
-* Fragment boundaries
-* Filesystem metadata where available
-* File-carving techniques
+* Magic bytes / file signatures
+* File type
+* File size
+* SHA-256 hash
+* Shannon entropy
+* Binary/text characteristics
+* Corruption indicators
 
-Initial demonstration formats:
+### 🧩 3. Fragment Detection & Analysis
 
-`JPEG` `PNG` `PDF` `TXT` `ZIP` `DOCX`
+Identify fragmented data and extract:
 
-### 🧩 3. Fragment Feature Extraction
-
-Extract features such as:
-
-* File signature
-* Fragment size
-* Offset
-* Entropy
-* Byte statistics
-* Printable-byte ratio
-* Structural information
-* Header/footer compatibility
+```text
+Fragment ID
+Offset
+Size
+SHA-256
+Entropy
+Byte statistics
+Detected type
+```
 
 ### 🤖 4. AI-Assisted Fragment Relationship Analysis
 
-The AI layer estimates whether two recovered fragments are likely to belong to the same original file.
+Estimate whether two fragments are likely to belong together using measurable features such as:
+
+* Entropy similarity
+* Byte statistics
+* Size compatibility
+* Offset/distance
+* Structural compatibility
 
 Example:
 
 ```text
-Fragment A → Fragment B
-Relationship Confidence: 94%
-
-Fragment A → Fragment C
-Relationship Confidence: 21%
+F001 → F002
+Relationship Score: 0.94
 ```
 
-The AI acts as an **assistive scoring layer**, while deterministic forensic and file-format checks validate results.
+The AI provides an **assistive score**; forensic and file-structure validation remain separate.
 
 ### 🕸️ 5. Fragment Relationship Graph
+
+Visualize possible relationships between recovered fragments.
 
 ```text
         F01
@@ -103,75 +127,75 @@ The AI acts as an **assistive scoring layer**, while deterministic forensic and 
         F04
 ```
 
-* Nodes → recovered fragments
-* Edges → possible relationships
-* Edge weight → relationship score
+**Nodes:** Fragments
+**Edges:** Possible relationships
+**Weight:** Relationship score
 
-### 🔧 6. Intelligent Reconstruction
+### 🔧 6. Reconstruction Candidates
 
-Candidate fragments are ordered using:
-
-* Relationship score
-* Structural compatibility
-* Byte-level similarity
-* File-format constraints
-* Offset information
-
-The system generates candidate reconstructions rather than blindly joining fragments.
-
-### ✅ 7. Integrity & Confidence Assessment
-
-Each reconstructed item receives:
-
-* Integrity score
-* Reconstruction confidence
-* Recovery status
-* Supporting reasons
-
-Example:
+Generate possible fragment sequences instead of blindly joining data.
 
 ```text
-File: evidence.jpg
+R001
 
-Fragments Found    : 6
-Fragments Used     : 5
-Integrity          : 89%
-Confidence         : 94%
+F001 → F002 → F005 → F008
 
-Status             : PARTIALLY RECOVERED
+Integrity:   91%
+Confidence:  88%
+Status:      PARTIALLY RECOVERED
+```
+
+### ✅ 7. Validation & Integrity Assessment
+
+Evaluate reconstruction candidates using:
+
+* Fragment consistency
+* Completeness
+* Structural compatibility
+* Relationship strength
+* File-format validation
+
+Possible statuses:
+
+```text
+FULLY RECOVERED
+PARTIALLY RECOVERED
+LOW CONFIDENCE
+UNRECOVERABLE
 ```
 
 ### 🎯 8. Evidence Prioritization
 
-Recovered artifacts are prioritized using factors such as:
+Prioritize results using measurable factors such as:
 
-* Recoverability
 * Integrity
+* Recoverability
 * Reconstruction confidence
-* Classification confidence
 * Completeness
 
-The system prioritizes **reliability and recoverability**, not legal importance.
+Priority represents **reliability and recoverability**, not legal importance.
 
-### 📊 9. Investigator Dashboard
+### 📊 9. Investigator Workspace
 
-The web interface displays:
+The desktop application provides:
 
-* Scan status
-* Recovered fragments
-* Fragment relationships
-* Reconstruction results
-* Integrity
-* Confidence
-* Recovery status
-* Evidence priority
+```text
+Cases
+├── Evidence
+├── Healthy Files
+├── Corrupted Files
+├── Fragments
+├── Reconstructions
+├── Priority Results
+└── Reports
+```
 
 ### 📄 10. Recovery Report
 
-For every recovered artifact, the system explains:
+Each reconstruction provides:
 
 ```text
-What was recovered?
+What was found?
 Which fragments were related?
 How was it reconstructed?
 How complete is it?
@@ -181,181 +205,187 @@ Why was this status assigned?
 
 ---
 
-# 🔄 Core System Flow
+# 🔄 System Flow
 
 ```text
-             Damaged / Deleted Data
-                       │
-                       ▼
-               Evidence Ingestion
-                       │
-                       ▼
-                Fragment Recovery
-                       │
-                       ▼
-              Feature Extraction
-                       │
-             ┌─────────┴─────────┐
-             ▼                   ▼
+                 Evidence Folder
+                        │
+                        ▼
+               ┌─────────────────┐
+               │ Evidence Manager│
+               └────────┬────────┘
+                        ▼
+                 File Analyzer
+                        │
+                        ▼
+                Fragment Detector
+                        │
+                        ▼
+               Feature Extraction
+                        │
+              ┌─────────┴─────────┐
+              ▼                   ▼
        Forensic Analysis      AI Analysis
-             │                   │
-             └─────────┬─────────┘
-                       ▼
-            Fragment Relationship
-                  Scoring
-                       │
-                       ▼
-            Relationship Graph
-                       │
-                       ▼
-              Reconstruction
-                       │
-                       ▼
-          Structural Validation
-                       │
-                       ▼
-        Integrity + Confidence Score
-                       │
-                       ▼
-             Evidence Prioritization
-                       │
-                       ▼
-              Investigator Report
+              │                   │
+              └─────────┬─────────┘
+                        ▼
+             Relationship Scoring
+                        │
+                        ▼
+                 Reconstruction
+                        │
+                        ▼
+                  Validation
+                        │
+                        ▼
+             Integrity + Confidence
+                        │
+                        ▼
+              Evidence Prioritization
+                        │
+                        ▼
+                    Report
 ```
 
 ---
 
-# 🏗️ Proposed System Architecture
+# 🏗️ System Architecture
 
 ```text
-                         ReConstructAI
-                              │
-                              ▼
-                  ┌──────────────────────┐
-                  │      Next.js         │
-                  │   Web Dashboard      │
-                  │  React + TypeScript  │
-                  └──────────┬───────────┘
-                             │
-                         HTTPS / REST
-                             │
-                             ▼
-                  ┌──────────────────────┐
-                  │       FastAPI        │
-                  │   Backend / API      │
-                  └──────────┬───────────┘
-                             │
-          ┌──────────────────┼──────────────────┐
-          ▼                  ▼                  ▼
-   ┌──────────────┐   ┌──────────────┐   ┌────────────────┐
-   │ Recovery     │   │ AI / ML      │   │ Reconstruction │
-   │ Engine       │   │ Engine       │   │ Engine         │
-   ├──────────────┤   ├──────────────┤   ├────────────────┤
-   │ Signatures   │   │ Features     │   │ Matching       │
-   │ Fragmenting  │   │ ML scoring   │   │ Graph analysis │
-   │ Carving      │   │ Confidence   │   │ Candidate build│
-   └──────┬───────┘   └──────┬───────┘   └───────┬────────┘
-          │                  │                   │
-          └──────────────────┼───────────────────┘
-                             ▼
-                  ┌──────────────────────┐
-                  │ Validation & Scoring │
-                  └──────────┬───────────┘
-                             │
-                 ┌───────────┴───────────┐
-                 ▼                       ▼
-        ┌────────────────┐      ┌─────────────────┐
-        │ MongoDB Atlas  │      │ Artifact Storage│
-        │ Metadata/Logs  │      │ Recovered Files │
-        └────────────────┘      └─────────────────┘
+                       ReConstructAI
+                            │
+                            ▼
+                   ┌─────────────────┐
+                   │    PySide6 UI   │
+                   │  Desktop App    │
+                   └────────┬────────┘
+                            │
+                            ▼
+                   ┌─────────────────┐
+                   │   Core Engine   │
+                   └────────┬────────┘
+                            │
+          ┌─────────────────┼─────────────────┐
+          ▼                 ▼                 ▼
+   ┌──────────────┐  ┌──────────────┐  ┌────────────────┐
+   │ File Analysis│  │   AI / ML    │  │ Reconstruction │
+   │ & Recovery   │  │    Engine    │  │     Engine     │
+   └──────┬───────┘  └──────┬───────┘  └───────┬────────┘
+          │                 │                  │
+          └─────────────────┼──────────────────┘
+                            ▼
+                   ┌─────────────────┐
+                   │ Validation &    │
+                   │ Prioritization  │
+                   └────────┬────────┘
+                            │
+                 ┌──────────┴──────────┐
+                 ▼                     ▼
+          ┌─────────────┐      ┌──────────────┐
+          │   SQLite    │      │ Local Storage│
+          │ Case/Results│      │ Evidence     │
+          └─────────────┘      │ Fragments    │
+                               │ Reconstructed│
+                               └──────────────┘
 ```
 
 ---
 
 # 🛠️ Technology Stack
 
-## Frontend
+### Desktop Application
 
-* **Next.js**
-* **TypeScript**
-* **Tailwind CSS**
-* **shadcn/ui**
-* **React Flow** — fragment relationship graph
-* **Recharts** — recovery and integrity visualization
+* Python
+* PySide6 / Qt
 
-## Backend
+### File Analysis & Recovery
 
-* **Python**
-* **FastAPI**
-* **Uvicorn**
+* Magic-byte / signature analysis
+* `python-magic` / `libmagic`
+* SHA-256 / `hashlib`
+* Pillow
+* Optional The Sleuth Kit / `pytsk3` where required
 
-## AI / Machine Learning
+### AI / Machine Learning
 
-* **Scikit-learn**
-* **Random Forest** — fragment relationship scoring
-* **NumPy**
-* **Pandas**
+* Scikit-learn
+* Random Forest
+* NumPy
+* Pandas
 
-## Digital Forensics & Recovery
+### Fragment Relationships & Reconstruction
 
-* **Python-based magic-byte/signature analysis**
-* **libmagic / python-magic**
-* **The Sleuth Kit / pytsk3** — optional filesystem analysis
-* **File-carving utilities** — optional where useful
-* **Pillow** — image validation
-* **SHA-256 / hashlib** — integrity tracking
+* Custom Python scoring algorithms
+* NetworkX
+* File-structure validation
 
-## Reconstruction
+### Database
 
-* **Custom Python reconstruction algorithms**
-* **NetworkX** — relationship graph analysis
+* SQLite
 
-## Database
-
-* **MongoDB**
-* **MongoDB Atlas**
-* **PyMongo**
-
-## Deployment
+Used for:
 
 ```text
-Next.js Frontend → Vercel
-
-FastAPI Backend → Railway / compatible Python hosting
-
-Database → MongoDB Atlas
+Cases
+Scans
+Files
+Fragments
+Relationships
+Reconstructions
+Reports
 ```
 
-The application will be a **responsive web application**. A separate native Android/iOS application is outside the 24-hour MVP scope.
+### Storage
+
+Local filesystem:
+
+```text
+storage/
+├── evidence/
+├── fragments/
+├── reconstructed/
+└── reports/
+```
+
+### Packaging
+
+* PyInstaller
+
+### Development
+
+* Git
+* GitHub
+* VS Code
+* Kilo Code
 
 ---
 
 # 🧠 AI Architecture
 
-The AI component uses a **hybrid forensic + machine learning approach**.
+ReConstructAI uses a **hybrid forensic + machine-learning approach**.
 
 ```text
-                Fragment Pair
-                     │
-          ┌──────────┴──────────┐
-          ▼                     ▼
-   Forensic Features       ML Features
-          │                     │
-          └──────────┬──────────┘
-                     ▼
-             Random Forest
-                     │
-                     ▼
-       Fragment Relationship Score
-                     │
-                     ▼
-           Reconstruction Engine
-                     │
-                     ▼
-           File Structure Validation
+                 Fragment Pair
+                      │
+          ┌───────────┴───────────┐
+          ▼                       ▼
+   Forensic Features         ML Features
+          │                       │
+          └───────────┬───────────┘
+                      ▼
+                Random Forest
+                      │
+                      ▼
+          Fragment Relationship Score
+                      │
+                      ▼
+             Reconstruction Engine
+                      │
+                      ▼
+              File Validation
 ```
 
-The AI primarily assists with **fragment relationship scoring and reconstruction confidence**, rather than simply identifying file extensions.
+The initial model is trained using controlled/synthetic data generated from known source files. Synthetic results are used for prototype evaluation and are **not claimed as real-world forensic accuracy**.
 
 ---
 
@@ -364,30 +394,19 @@ The AI primarily assists with **fragment relationship scoring and reconstruction
 ```text
 ReConstructAI/
 │
-├── frontend/
-│   ├── app/
-│   ├── components/
-│   ├── hooks/
-│   ├── lib/
-│   └── public/
-│
-├── backend/
-│   ├── app/
-│   │   ├── main.py
-│   │   ├── api/
-│   │   ├── services/
-│   │   ├── models/
-│   │   └── utils/
-│   └── requirements.txt
+├── app/
+│   ├── main.py
+│   ├── ui/
+│   ├── core/
+│   └── database/
 │
 ├── recovery/
+│   ├── analyzer/
 │   ├── signatures/
 │   ├── fragments/
-│   ├── filesystem/
 │   └── hashing/
 │
 ├── ai/
-│   ├── datasets/
 │   ├── features/
 │   ├── models/
 │   └── scoring/
@@ -399,14 +418,15 @@ ReConstructAI/
 │   └── validator.py
 │
 ├── storage/
-│   ├── input/
+│   ├── evidence/
 │   ├── fragments/
-│   └── reconstructed/
+│   ├── reconstructed/
+│   └── reports/
 │
+├── datasets/
 ├── tests/
-│
 ├── docs/
-│
+├── requirements.txt
 ├── .gitignore
 └── README.md
 ```
@@ -415,388 +435,142 @@ ReConstructAI/
 
 # 👥 Team & Assigned Work
 
-## 1. Yashas — Backend & System Integration
-
-**Branch:** `feature/backend`
-
-### Responsibilities
-
-* FastAPI backend
-* REST API design
-* MongoDB Atlas integration
-* Scan/session management
-* API integration with recovery, AI and reconstruction modules
-* Backend error handling
-* Frontend ↔ backend integration
-* Final deployment coordination
-
-### Main modules
-
-```text
-backend/
-├── api/
-├── services/
-├── models/
-└── utils/
-```
-
-### Primary goal
-
-Make sure all four modules work together as **one complete system**.
+| Member       | Role                                      | Main Responsibility                                                                    |
+| ------------ | ----------------------------------------- | -------------------------------------------------------------------------------------- |
+| **Yashas**   | **Team Lead + Core Engine & Integration** | Architecture, SQLite, case management, module integration, testing and final packaging |
+| **Suryadev** | **Recovery & Digital Forensics**          | File analysis, signatures, fragment extraction, hashing and recovery logic             |
+| **Maanika**  | **AI & Reconstruction**                   | Feature engineering, ML model, relationship scoring, reconstruction and validation     |
+| **Rameez**   | **Desktop UI**                            | PySide6 interface, file manager, dashboard, graph and report screens                   |
 
 ---
 
-## 2. Suryadev — Data Recovery & Digital Forensics
-
-**Branch:** `feature/recovery`
-
-### Responsibilities
-
-* Evidence ingestion
-* File signature / magic-byte detection
-* Fragment extraction
-* File carving
-* Hash generation
-* Basic filesystem analysis
-* Recovery test datasets
-* Recovered artifact validation
-
-### Main modules
-
-```text
-recovery/
-├── signatures/
-├── fragments/
-├── filesystem/
-└── hashing/
-```
-
-### Primary goal
-
-Convert damaged/deleted input into **usable recovered fragments with metadata**.
-
----
-
-## 3. Maanika — AI & Reconstruction Engine
-
-**Branch:** `feature/ai-reconstruction`
-
-### Responsibilities
-
-* Fragment feature extraction
-* Dataset preparation
-* Random Forest model
-* Fragment-pair scoring
-* Similarity calculations
-* Relationship graph logic
-* Reconstruction candidate generation
-* Integrity/confidence scoring
-* Evidence prioritization
-
-### Main modules
-
-```text
-ai/
-├── datasets/
-├── features/
-├── models/
-└── scoring/
-
-reconstruction/
-├── matcher.py
-├── graph.py
-├── scorer.py
-└── validator.py
-```
-
-### Primary goal
-
-Build the project's **main intelligence layer** that determines which fragments are likely related and how confidently they can be reconstructed.
-
----
-
-## 4. Rameez — Frontend & Investigator Dashboard
-
-**Branch:** `feature/frontend`
-
-### Responsibilities
-
-* Next.js application
-* Dashboard
-* Evidence upload interface
-* Scan progress
-* Fragment table
-* Recovery result pages
-* Integrity/confidence visualization
-* React Flow relationship graph
-* Evidence prioritization UI
-* Recovery report interface
-* Responsive design
-
-### Main modules
-
-```text
-frontend/
-├── app/
-├── components/
-├── hooks/
-├── lib/
-└── public/
-```
-
-### Primary goal
-
-Turn the backend analysis into a **clear, professional investigator-facing interface**.
-
----
-
-# 🔗 Team Integration
-
-The four modules connect as follows:
-
-```text
-                 Rameez
-              Next.js UI
-                  │
-                  ▼
-                 Yashas
-             FastAPI Backend
-                  │
-        ┌─────────┼─────────┐
-        ▼         ▼         ▼
-   Suryadev    Maanika    Storage
-   Recovery   AI +        + MongoDB
-              Reconstruction
-        │         │
-        └────┬────┘
-             ▼
-       Final Analysis
-             │
-             ▼
-        Next.js UI
-```
-
-### Integration responsibility
-
-**Yashas** owns the main integration layer.
-
-Each member should expose clean functions/APIs instead of directly modifying another member's module.
-
----
-
-# 🌿 GitHub Branch Strategy
+# 🌿 GitHub Workflow
 
 ```text
 main
 │
-├── feature/frontend
+├── feature/core
 ├── feature/recovery
 ├── feature/ai-reconstruction
-└── feature/backend
+└── feature/ui
 ```
 
 ### Rules
 
-1. Do not directly experiment on `main`.
-2. Each member works primarily on their assigned branch.
-3. Commit frequently with meaningful messages.
-4. Push work to GitHub regularly.
-5. Merge major features through Pull Requests.
-6. Pull the latest `main` before major integration work.
-7. Test before merging.
-
-### Example
-
-```bash
-git checkout main
-git pull origin main
-git checkout -b feature/recovery
-```
-
-After implementation:
-
-```bash
-git add .
-git commit -m "feat: add fragment signature detection"
-git push -u origin feature/recovery
-```
-
-Then:
-
-```text
-Pull Request
-feature/recovery → main
-```
-
----
-
-# 🎯 MVP Scope
-
-The 24-hour MVP must achieve one complete working pipeline:
-
-```text
-✓ Evidence ingestion
-✓ Fragment detection
-✓ File-type identification
-✓ Feature extraction
-✓ AI-assisted fragment relationship scoring
-✓ Relationship graph
-✓ Candidate reconstruction
-✓ Structural validation
-✓ Integrity score
-✓ Confidence score
-✓ Evidence prioritization
-✓ Investigator dashboard
-✓ End-to-end demonstration
-```
+* `main` contains tested and integrated code.
+* Each member works primarily on their feature branch.
+* Commit and push work regularly.
+* Use Pull Requests for integration.
+* Test before merging.
+* Keep module interfaces stable.
 
 ---
 
 # 🧪 Demonstration Dataset
 
-We will create controlled datasets from known source files.
+We create controlled datasets from known source files.
 
 ```text
 Original File
-     ↓
+      ↓
 Split into fragments
-     ↓
-Shuffle / remove / duplicate / corrupt selected fragments
-     ↓
+      ↓
+Shuffle / remove / duplicate / corrupt
+      ↓
 Damaged Dataset
-     ↓
+      ↓
 ReConstructAI
-     ↓
-Reconstructed Candidate
-     ↓
+      ↓
+Reconstruction Candidate
+      ↓
 Compare with Original
 ```
 
-### Demonstration scenarios
+### Demonstration Cases
 
 ```text
-1. Fully reconstructable file
-2. Fragmented file
-3. Partially corrupted file
-4. Missing fragment
-5. Duplicate fragments
-6. Unrecoverable data
+✓ Fully recoverable
+✓ Fragmented
+✓ Partially corrupted
+✓ Missing fragment
+✓ Duplicate fragment
+✓ Unrecoverable
 ```
 
-Known source files provide ground truth for evaluating reconstruction.
+This provides known ground truth for testing reconstruction.
 
 ---
 
-# 🔐 Security & Forensic Principles
+# 🎯 MVP
 
-* Analyze copies rather than modifying original evidence.
-* Generate SHA-256 hashes for evidence tracking.
-* Separate original evidence from recovered artifacts.
-* Keep analysis metadata separate from binary evidence.
-* Provide explainable confidence and integrity results.
-* Clearly distinguish recovered, partially recovered and unrecoverable data.
-
-**ReConstructAI is a hackathon prototype and is not intended to replace validated forensic acquisition or examination tools.**
-
----
-
-# ⏱️ 24-Hour Development Priority
-
-### Phase 1 — Foundation
+The 24-hour MVP focuses on one complete workflow:
 
 ```text
-GitHub
-Next.js
-FastAPI
-MongoDB
-Basic API connection
-Basic dashboard
-```
-
-### Phase 2 — Recovery
-
-```text
-Fragment detection
-Signature analysis
-Sample damaged datasets
-Hashing
-```
-
-### Phase 3 — AI + Reconstruction
-
-```text
-Feature extraction
-Fragment-pair scoring
-Relationship graph
-Reconstruction
-Validation
-```
-
-### Phase 4 — Integration
-
-```text
-Frontend
-    ↓
-FastAPI
-    ↓
-Recovery
-    ↓
-AI
-    ↓
-Reconstruction
-    ↓
-Results
-```
-
-### Phase 5 — Finalization
-
-```text
-Testing
-UI polishing
-Deployment
-Demo dataset
-Presentation
-Final rehearsal
+✓ Create Case
+✓ Select Evidence Folder
+✓ Analyze Files
+✓ Detect Fragments
+✓ Extract Features
+✓ Find Fragment Relationships
+✓ AI-Assisted Relationship Scoring
+✓ Generate Reconstruction Candidates
+✓ Validate Candidates
+✓ Calculate Integrity / Confidence
+✓ Prioritize Results
+✓ Display in Desktop UI
+✓ Export Reconstructed Artifact / Report
 ```
 
 ---
 
 # 🚫 Scope Control
 
-We are **not** attempting to build:
+We are not attempting to build:
 
-* A universal file-recovery platform
+* A universal forensic recovery platform
 * Support for every filesystem and file format
-* A full enterprise digital-forensics suite
 * A native mobile application
 * A large deep-learning model
-* An LLM-based evidence reconstruction system
+* An LLM-based reconstruction engine
+* A replacement for professional forensic tools
 
-The focus is a **working, demonstrable intelligent reconstruction pipeline within 24 hours**.
+The focus is a **working, demonstrable intelligent recovery and reconstruction prototype within 24 hours**.
+
+---
+
+# 🔐 Forensic Principles
+
+* Analyze copies rather than modifying original evidence.
+* Generate hashes for evidence tracking.
+* Separate original evidence from recovered artifacts.
+* Clearly distinguish reconstruction candidates from verified recovery.
+* Provide explainable integrity and confidence information.
+* Do not claim recovery when the underlying data is unavailable or insufficient.
+
+**ReConstructAI is a hackathon prototype and is not intended to replace validated forensic acquisition or examination tools.**
 
 ---
 
 # 🔮 Future Enhancements
 
 * Advanced filesystem support
-* Additional file formats
+* More file formats
 * Improved fragment-ordering models
-* Deep-learning-based binary representations
+* Advanced binary similarity
 * Timeline reconstruction
 * Metadata correlation
 * Advanced forensic reporting
-* Cloud-scale evidence processing
-* Large-scale object storage
-* Advanced investigator analytics
+* Large-scale evidence processing
+* Additional reconstruction algorithms
 
 ---
 
 # 🎯 Vision
 
-ReConstructAI aims to move digital recovery from:
+ReConstructAI moves digital recovery beyond:
 
 ```text
-Recover the file
+"File recovered."
 ```
 
 towards:
@@ -813,7 +587,7 @@ Validate
 Prioritize
 ```
 
-The goal is to help users understand **what can realistically be restored and how reliable that reconstruction is**.
+The goal is to help users understand **what can realistically be restored, how fragments are related, and how reliable the reconstruction is**.
 
 ---
 
@@ -821,16 +595,14 @@ The goal is to help users understand **what can realistically be restored and ho
 
 ### ReConstructAI Team
 
-| Member       | Role                              | GitHub Branch               |
-| ------------ | --------------------------------- | --------------------------- |
-| **Yashas**   | Backend & System Integration      | `feature/backend`           |
-| **Suryadev** | Data Recovery & Digital Forensics | `feature/recovery`          |
-| **Maanika**  | AI & Reconstruction Engine        | `feature/ai-reconstruction` |
-| **Rameez**   | Frontend & Investigator Dashboard | `feature/frontend`          |
+* **Yashas** — Team Lead + Core Engine & Integration
+* **Suryadev** — Recovery & Digital Forensics
+* **Maanika** — AI & Reconstruction
+* **Rameez** — Desktop UI
 
 ---
 
-# 📜 License
+## 📜 License
 
 This project is developed for educational, research and hackathon purposes.
 
@@ -838,6 +610,6 @@ License information will be added as the project evolves.
 
 ---
 
-## 🚀 ReConstructAI
+# 🚀 ReConstructAI
 
 ### Recover. Reconstruct. Understand.
