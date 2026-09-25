@@ -351,10 +351,9 @@ def test_executable_file():
         assert result.signature_detected == True
         assert "PE" in result.detected_type or "Executable" in result.detected_type
         assert result.validation_status == "VALID"
-        
+
         print("PASS")
-        return True
-        
+
     finally:
         temp_path.unlink()
 

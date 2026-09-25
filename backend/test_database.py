@@ -23,6 +23,23 @@ from app.storage.database import (
 from app.models.scan import Fragment, Relationship, ReconstructionCandidate, ScanResult
 from datetime import datetime
 
+import pytest
+
+
+@pytest.fixture(autouse=True)
+def isolated_test_db(tmp_path):
+    """Provide a clean test database for each test function.
+
+    Each database test starts with a fresh, uniquely-named database file so
+    that hardcoded IDs (CASE_001, SCAN_001, ...) never collide across runs or
+    repeated pytest invocations. Production database behavior is unchanged.
+    """
+    import app.storage.database as db_module
+    test_db = tmp_path / "test_reconstructai.db"
+    db_module.DB_PATH = test_db
+    initialize_database()
+    yield
+
 
 def setup_test_db():
     """Initialize a fresh test database."""
@@ -331,26 +348,37 @@ def test_report_operations():
     print("=" * 60)
     
     create_case("CASE_007", "Report Test Case")
+    create_scan("SCAN_007", "CASE_007", "completed")
+    save_reconstruction(
+        reconstruction_id="R007",
+        scan_id="SCAN_007",
+        fragment_ids=["F001", "F002", "F003"],
+        integrity_score=0.92,
+        confidence_score=0.88,
+        evidence_quality="HIGH",
+        priority="HIGH",
+        status="STRONG_CANDIDATE",
+    )
     
     # Save report
     save_report(
-        report_id="REPORT_001",
+        report_id="REPORT_007",
         case_id="CASE_007",
-        scan_id="SCAN_001",
-        reconstruction_id="R001",
-        report_path="reports/report_001.json",
+        scan_id="SCAN_007",
+        reconstruction_id="R007",
+        report_path="reports/report_007.json",
         report_data={
             'summary': 'Test report',
             'findings': ['Fragment 1', 'Fragment 2']
         }
     )
-    print("Saved report REPORT_001")
+    print("Saved report REPORT_007")
     
     # Get reports by case
     reports = get_reports_by_case("CASE_007")
     assert len(reports) >= 1
     report = reports[0]
-    assert report['report_id'] == "REPORT_001"
+    assert report['report_id'] == "REPORT_007"
     assert report['report_data']['summary'] == "Test report"
     print(f"Retrieved {len(reports)} reports for case")
     
