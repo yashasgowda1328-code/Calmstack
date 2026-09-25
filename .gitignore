@@ -1,0 +1,11 @@
+venv/
+backend/venv/
+__pycache__/
+*.pyc
+*.pyo
+.env
+.venv/
+backend/uploads/*
+backend/storage/reconstructed/*
+backend/storage/recovered_candidates/*
+storage/*
