@@ -13,8 +13,12 @@ from typing import Optional, List, Dict, Any
 from contextlib import contextmanager
 from dataclasses import dataclass
 
+try:
+    from app.config import get_db_path
+    DB_PATH = get_db_path()
+except ImportError:
+    DB_PATH = Path("storage/reconstructai.db")
 
-DB_PATH = Path("storage/reconstructai.db")
 DB_PATH.parent.mkdir(parents=True, exist_ok=True)
 
 
@@ -463,6 +467,40 @@ def save_reconstruction(
     return True
 
 
+def update_reconstruction_result(
+    reconstruction_id: str,
+    status: str,
+    output_path: Optional[str] = None,
+    output_sha256: Optional[str] = None,
+    output_size: Optional[int] = None,
+    output_entropy: Optional[float] = None,
+    output_file_type: Optional[str] = None,
+    output_mime_type: Optional[str] = None,
+    validation_status: Optional[str] = None,
+    validation_details: Optional[Dict] = None
+) -> bool:
+    """Record the outcome of a reconstruction run on an existing candidate row.
+
+    Only the artifact columns are touched, so the candidate scores and its
+    original `created_at` are preserved.
+    """
+    with db_transaction() as conn:
+        conn.execute(
+            """UPDATE reconstructions
+               SET status = ?, output_path = ?, output_sha256 = ?, output_size = ?,
+                   output_entropy = ?, output_file_type = ?, output_mime_type = ?,
+                   validation_status = ?, validation_details = ?
+               WHERE reconstruction_id = ?""",
+            (
+                status, output_path, output_sha256, output_size, output_entropy,
+                output_file_type, output_mime_type, validation_status,
+                json.dumps(validation_details) if validation_details else None,
+                reconstruction_id
+            )
+        )
+    return True
+
+
 def get_reconstruction(reconstruction_id: str) -> Optional[Dict]:
     """Get a reconstruction by ID."""
     with get_connection() as conn:
@@ -517,6 +555,59 @@ def save_report(
             (
                 report_id, case_id, scan_id, reconstruction_id, report_path,
                 json.dumps(report_data) if report_data else None
+            )
+        )
+    return True
+
+
+def create_report(
+    report_id: str,
+    case_id: str,
+    report_type: str = "recovery",
+    scan_id: Optional[str] = None,
+    reconstruction_id: Optional[str] = None,
+    filename: Optional[str] = None,
+    file_path: Optional[str] = None,
+    file_type: Optional[str] = None,
+    mime_type: Optional[str] = None,
+    relevance_score: Optional[float] = None,
+    ai_classification: Optional[str] = None,
+    detection_result: Optional[str] = None,
+    user_reason: Optional[str] = None,
+    report_status: str = "SUBMITTED",
+    report_path: Optional[str] = None,
+    report_data: Optional[Dict] = None
+) -> bool:
+    """Save a report with its descriptive fields.
+
+    The `reports` table stores the identifying columns; every additional
+    descriptive field is kept inside the `report_data` JSON payload so the
+    schema stays unchanged for existing databases.
+    """
+    payload: Dict[str, Any] = dict(report_data or {})
+    for key, value in (
+        ("report_type", report_type),
+        ("filename", filename),
+        ("file_path", file_path),
+        ("file_type", file_type),
+        ("mime_type", mime_type),
+        ("relevance_score", relevance_score),
+        ("ai_classification", ai_classification),
+        ("detection_result", detection_result),
+        ("user_reason", user_reason),
+        ("report_status", report_status),
+    ):
+        if value is not None:
+            payload[key] = value
+
+    with db_transaction() as conn:
+        conn.execute(
+            """INSERT OR REPLACE INTO reports
+               (report_id, case_id, scan_id, reconstruction_id, report_path, report_data)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (
+                report_id, case_id, scan_id, reconstruction_id, report_path,
+                json.dumps(payload)
             )
         )
     return True

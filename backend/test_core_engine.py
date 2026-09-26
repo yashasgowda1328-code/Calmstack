@@ -17,8 +17,10 @@ def test_core_engine_workflow():
     print("TEST: CoreEngine Complete Workflow")
     print("=" * 60)
     
-    # Create a known test file
-    original_content = b"RECONSTRUCTAI_TEST_FILE_" + os.urandom(8000)
+    # Create a known test file. It is large enough that a real scan produces
+    # four fragments, so the persistence checks below are satisfied by this
+    # scan's own data instead of leftovers in a shared database.
+    original_content = b"RECONSTRUCTAI_TEST_FILE_" + os.urandom(13000)
     original_size = len(original_content)
     original_sha256 = __import__('hashlib').sha256(original_content).hexdigest()
     
@@ -65,7 +67,7 @@ def test_core_engine_workflow():
         print(f"\nFile verification: PASS")
         
         # Verify fragments
-        assert len(result.fragments) == 2  # 8024 bytes = 2 fragments (4096+3928)
+        assert len(result.fragments) == 4  # 13021 bytes = 4 fragments (3x4096 + 733)
         print(f"Fragment count: PASS ({len(result.fragments)} fragments)")
         
         # Verify fragments are ordered

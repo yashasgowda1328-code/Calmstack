@@ -1,264 +1,376 @@
 """
 ReConstructAI - Cases Page
+
+Case management over the real stored investigations. Each row carries the
+counts the engine actually stored for that case, and selecting a case makes it
+the active investigation for the rest of the workspace.
 """
 
-from PySide6.QtWidgets import (
-    QWidget, QVBoxLayout, QHBoxLayout, QLabel, QFrame,
-    QPushButton, QTableWidget, QTableWidgetItem, QHeaderView,
-    QLineEdit, QDialog, QFormLayout, QTextEdit, QDialogButtonBox,
-    QMessageBox, QAbstractItemView, QSizePolicy
-)
-from PySide6.QtCore import Qt, Signal
-from datetime import datetime
-import uuid
-
-# Import existing database functions
-import sys
 import os
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), '..'))
+import sys
+import uuid
+from typing import Any, Dict, List, Optional
 
-from app.storage.database import (
-    initialize_database, create_case, list_cases, get_case
+from PySide6.QtCore import Qt, Signal
+from PySide6.QtWidgets import (
+    QDialog,
+    QDialogButtonBox,
+    QFormLayout,
+    QLabel,
+    QLineEdit,
+    QMessageBox,
+    QSplitter,
+    QStackedWidget,
+    QTextEdit,
+    QVBoxLayout,
 )
+
+sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
+
+from app.storage.database import create_case, get_case
+from app.ui import data as view
+from app.ui.components import (
+    DetailsPanel,
+    EmptyState,
+    ForensicTable,
+    Page,
+    StatusChip,
+    Toolbar,
+    format_datetime,
+    make_button,
+    shorten_hash,
+)
+from app.ui.session import SESSION
+
+
+CASE_COLUMNS = [
+    {
+        "key": "name",
+        "label": "Case",
+        "stretch": True,
+        "kind": "text",
+        "value": lambda r: (r.get("name"), "text"),
+        "tooltip": lambda r: r.get("case_id") or "",
+    },
+    {
+        "key": "scan_count",
+        "label": "Scans",
+        "width": 80,
+        "kind": "center",
+        "value": lambda r: (r.get("scan_count"), "center"),
+    },
+    {
+        "key": "file_count",
+        "label": "Files",
+        "width": 75,
+        "kind": "center",
+        "value": lambda r: (r.get("file_count"), "center"),
+    },
+    {
+        "key": "fragment_count",
+        "label": "Fragments",
+        "width": 95,
+        "kind": "center",
+        "value": lambda r: (r.get("fragment_count"), "center"),
+    },
+    {
+        "key": "reconstruction_count",
+        "label": "Candidates",
+        "width": 100,
+        "kind": "center",
+        "value": lambda r: (r.get("reconstruction_count"), "center"),
+    },
+    {
+        "key": "last_scan_at",
+        "label": "Last Scan",
+        "width": 150,
+        "kind": "center",
+        "value": lambda r: (format_datetime(r.get("last_scan_at")), "center"),
+    },
+    {
+        "key": "created_at",
+        "label": "Created",
+        "width": 150,
+        "kind": "center",
+        "value": lambda r: (format_datetime(r.get("created_at")), "center"),
+    },
+]
 
 
 class CreateCaseDialog(QDialog):
     """Dialog for creating a new case."""
-    
+
     def __init__(self, parent=None):
         super().__init__(parent)
         self.setWindowTitle("Create New Case")
         self.setMinimumWidth(480)
         self.setModal(True)
-        self._setup_ui()
-    
-    def _setup_ui(self):
+
         layout = QVBoxLayout(self)
         layout.setContentsMargins(24, 24, 24, 24)
         layout.setSpacing(16)
-        
+
         title = QLabel("Create New Case")
         title.setObjectName("sectionTitle")
         layout.addWidget(title)
-        
+
         form = QFormLayout()
         form.setSpacing(16)
         form.setLabelAlignment(Qt.AlignLeft)
-        
+
         self.name_edit = QLineEdit()
         self.name_edit.setPlaceholderText("Enter case name")
         self.name_edit.setMinimumHeight(40)
         form.addRow("Case Name *", self.name_edit)
-        
+
         self.desc_edit = QTextEdit()
         self.desc_edit.setPlaceholderText("Optional description...")
         self.desc_edit.setMaximumHeight(100)
         form.addRow("Description", self.desc_edit)
-        
+
         layout.addLayout(form)
-        
-        # Buttons
-        button_box = QDialogButtonBox(
-            QDialogButtonBox.Ok | QDialogButtonBox.Cancel
-        )
-        button_box.setObjectName("dialogButtons")
+
+        button_box = QDialogButtonBox(QDialogButtonBox.Ok | QDialogButtonBox.Cancel)
         ok_btn = button_box.button(QDialogButtonBox.Ok)
         ok_btn.setObjectName("primaryButton")
         ok_btn.setText("Create Case")
-        cancel_btn = button_box.button(QDialogButtonBox.Cancel)
-        cancel_btn.setObjectName("secondaryButton")
-        
+        button_box.button(QDialogButtonBox.Cancel).setObjectName("secondaryButton")
         button_box.accepted.connect(self._validate_and_accept)
         button_box.rejected.connect(self.reject)
         layout.addWidget(button_box)
-    
+
     def _validate_and_accept(self):
         if not self.name_edit.text().strip():
             QMessageBox.warning(self, "Validation Error", "Case name is required.")
             return
         self.accept()
-    
-    def get_case_data(self):
+
+    def get_case_data(self) -> Dict[str, str]:
         return {
             "name": self.name_edit.text().strip(),
-            "description": self.desc_edit.toPlainText().strip()
+            "description": self.desc_edit.toPlainText().strip(),
         }
 
 
-class CasesPage(QWidget):
+class CasesPage(Page):
     """Cases management page."""
-    
-    case_selected = Signal(str)  # Emits case_id
-    
+
+    case_selected = Signal(str)
+
     def __init__(self, parent=None):
-        super().__init__(parent)
-        self.setObjectName("contentArea")
-        self._cases = []
-        self._selected_case_id = None
-        self._setup_ui()
-        self._load_cases()
-    
-    def _setup_ui(self):
-        layout = QVBoxLayout(self)
-        layout.setContentsMargins(32, 32, 32, 32)
-        layout.setSpacing(20)
-        
-        # Header with actions
-        header_layout = QHBoxLayout()
-        header_layout.setSpacing(16)
-        
-        title = QLabel("Cases")
-        title.setObjectName("titleLabel")
-        header_layout.addWidget(title)
-        
-        header_layout.addStretch()
-        
-        refresh_btn = QPushButton("Refresh")
-        refresh_btn.setObjectName("secondaryButton")
-        refresh_btn.setCursor(Qt.PointingHandCursor)
-        refresh_btn.clicked.connect(self._load_cases)
-        header_layout.addWidget(refresh_btn)
-        
-        create_btn = QPushButton("Create New Case")
-        create_btn.setObjectName("primaryButton")
-        create_btn.setCursor(Qt.PointingHandCursor)
-        create_btn.clicked.connect(self._create_case)
-        header_layout.addWidget(create_btn)
-        
-        layout.addLayout(header_layout)
-        
-        # Cases table
-        self.table = QTableWidget()
-        self.table.setObjectName("casesTable")
-        self.table.setColumnCount(5)
-        self.table.setHorizontalHeaderLabels([
-            "Case ID", "Name", "Description", "Created", "Actions"
-        ])
-        self.table.horizontalHeader().setSectionResizeMode(0, QHeaderView.ResizeToContents)
-        self.table.horizontalHeader().setSectionResizeMode(1, QHeaderView.Stretch)
-        self.table.horizontalHeader().setSectionResizeMode(2, QHeaderView.Stretch)
-        self.table.horizontalHeader().setSectionResizeMode(3, QHeaderView.ResizeToContents)
-        self.table.horizontalHeader().setSectionResizeMode(4, QHeaderView.ResizeToContents)
-        self.table.setSelectionBehavior(QAbstractItemView.SelectRows)
-        self.table.setSelectionMode(QAbstractItemView.SingleSelection)
-        self.table.setAlternatingRowColors(False)
-        self.table.setShowGrid(False)
-        self.table.verticalHeader().setVisible(False)
-        self.table.setEditTriggers(QAbstractItemView.NoEditTriggers)
-        
-        layout.addWidget(self.table)
-        
-        # Empty state
-        self.empty_label = QLabel("No cases yet. Create your first case to begin.")
-        self.empty_label.setObjectName("bodyLabel")
-        self.empty_label.setAlignment(Qt.AlignCenter)
-        self.empty_label.setStyleSheet("color: #737373; padding: 60px;")
-        self.empty_label.hide()
-        layout.addWidget(self.empty_label)
-    
-    def _load_cases(self):
-        """Load cases from database."""
+        self._cases: List[Dict[str, Any]] = []
+        self._selected_case_id: Optional[str] = None
+        super().__init__(
+            "Cases",
+            "Stored investigations and their real evidence counts",
+            parent=parent,
+        )
+        self._setup_body()
+
+    # ----------------------------------------------------------------
+    # Construction
+    # ----------------------------------------------------------------
+
+    def _setup_body(self):
+        self.btn_create = make_button(
+            "Create New Case",
+            self._create_case,
+            variant="primary",
+            tooltip="Start a new investigation",
+        )
+        self.btn_refresh = make_button(
+            "Refresh",
+            self.refresh,
+            variant="secondary",
+            tooltip="Re-read cases from the database",
+        )
+        self.add_header_widget(self.btn_create)
+        self.add_header_widget(self.btn_refresh)
+
+        self.toolbar = Toolbar()
+        self.count_label = QLabel("0 cases")
+        self.count_label.setObjectName("mutedLabel")
+        self.toolbar.add_widget(self.count_label)
+
+        self.active_chip = StatusChip("No active case", "UNANALYZED")
+        self.active_chip.setToolTip("The case the workspace is currently working in")
+        self.toolbar.add_widget(self.active_chip)
+        self.toolbar.add_spacer()
+        self.add_widget(self.toolbar)
+
+        self.workspace = QStackedWidget()
+
+        self.splitter = QSplitter(Qt.Horizontal)
+        self.splitter.setChildrenCollapsible(False)
+        self.splitter.setHandleWidth(1)
+
+        self.table = ForensicTable(CASE_COLUMNS, object_name="dataTable")
+        self.table.itemSelectionChanged.connect(self._on_selection_changed)
+        self.table.itemDoubleClicked.connect(lambda _r: self._on_open_case())
+        self.splitter.addWidget(self.table)
+
+        self.details = DetailsPanel("Case Details")
+        self.details.clear("Select a case to view its stored evidence")
+        self.splitter.addWidget(self.details)
+        self.splitter.setStretchFactor(0, 1)
+        self.splitter.setStretchFactor(1, 0)
+        self.splitter.setSizes([860, 360])
+        self.workspace.addWidget(self.splitter)
+
+        self.empty_state = EmptyState(
+            "No cases yet",
+            "Create your first case to start an investigation.",
+        )
+        self.workspace.addWidget(self.empty_state)
+        self.add_widget(self.workspace, 1)
+
+        self.status_label = QLabel("")
+        self.status_label.setObjectName("pageSubtitle")
+        self.status_label.setWordWrap(True)
+        self.add_widget(self.status_label)
+
+        self.workspace.setCurrentIndex(1)
+        self.refresh()
+
+    # ----------------------------------------------------------------
+    # Data
+    # ----------------------------------------------------------------
+
+    def refresh(self):
+        """Reload cases and their real counts."""
         try:
-            self._cases = list_cases()
-            self._populate_table()
-        except Exception as e:
-            QMessageBox.critical(self, "Error", f"Failed to load cases: {str(e)}")
-    
-    def _populate_table(self):
-        self.table.setRowCount(len(self._cases))
-        
-        if len(self._cases) == 0:
-            self.table.hide()
-            self.empty_label.show()
-            return
-        
-        self.table.show()
-        self.empty_label.hide()
-        
-        for row, case in enumerate(self._cases):
-            case_id = case.get('case_id', '')
-            name = case.get('name', '')
-            description = case.get('description', '') or '—'
-            created_at = case.get('created_at', '')
-            
-            # Format date
-            if created_at:
-                try:
-                    dt = datetime.fromisoformat(created_at.replace('Z', '+00:00'))
-                    created_str = dt.strftime("%Y-%m-%d %H:%M")
-                except:
-                    created_str = created_at[:16] if len(created_at) >= 16 else created_at
-            else:
-                created_str = "—"
-            
-            # Case ID (truncated for display)
-            id_item = QTableWidgetItem(case_id[:8] + "..." if len(case_id) > 8 else case_id)
-            id_item.setData(Qt.UserRole, case_id)
-            id_item.setToolTip(case_id)
-            self.table.setItem(row, 0, id_item)
-            
-            self.table.setItem(row, 1, QTableWidgetItem(name))
-            self.table.setItem(row, 2, QTableWidgetItem(description))
-            self.table.setItem(row, 3, QTableWidgetItem(created_str))
-            
-            # Select button
-            select_btn = QPushButton("Select")
-            select_btn.setObjectName("ghostButton")
-            select_btn.setCursor(Qt.PointingHandCursor)
-            select_btn.setProperty("case_id", case_id)
-            select_btn.clicked.connect(lambda checked, cid=case_id: self._on_select_case(cid))
-            
-            # Store in a container widget
-            btn_container = QWidget()
-            btn_layout = QHBoxLayout(btn_container)
-            btn_layout.setContentsMargins(8, 4, 8, 4)
-            btn_layout.addWidget(select_btn)
-            btn_layout.addStretch()
-            self.table.setCellWidget(row, 4, btn_container)
-        
-        # Restore selection if exists
+            self._cases = view.case_records()
+        except Exception as exc:
+            self._cases = []
+            self.status_label.setText(f"Could not read cases: {exc}")
+
+        if self._selected_case_id and not any(
+            case.get("case_id") == self._selected_case_id for case in self._cases
+        ):
+            self._selected_case_id = None
+
+        self._render()
+        self._render_active_chip()
+
+    def cases(self) -> List[Dict[str, Any]]:
+        return list(self._cases)
+
+    def _render(self):
+        self.table.set_records(self._cases)
+        self.count_label.setText(f"{len(self._cases)} cases")
+        self.workspace.setCurrentIndex(0 if self.table.rowCount() else 1)
+        if not self._cases:
+            self.empty_state.set_state(
+                "No cases yet",
+                "Create your first case to start an investigation.",
+            )
         if self._selected_case_id:
-            for row in range(self.table.rowCount()):
-                item = self.table.item(row, 0)
-                if item and item.data(Qt.UserRole) == self._selected_case_id:
-                    self.table.selectRow(row)
-                    break
-    
+            self._select_record(self._selected_case_id)
+        elif self._cases:
+            self.table.select_first()
+
+    def _render_active_chip(self):
+        if SESSION.has_case():
+            self.active_chip.set_status(SESSION.case_name or "Active case", "RECOVERED")
+        elif self._selected_case_id:
+            self.active_chip.set_status("Selected, not opened", "PENDING")
+        else:
+            self.active_chip.set_status("No active case", "UNANALYZED")
+
+    def _select_record(self, case_id: str):
+        for row, case in enumerate(self._cases):
+            if case.get("case_id") == case_id:
+                self.table.selectRow(row)
+                return True
+        return False
+
+    # ----------------------------------------------------------------
+    # Interaction
+    # ----------------------------------------------------------------
+
+    def _on_selection_changed(self):
+        record = self.table.current_record()
+        if not record:
+            self._selected_case_id = None
+            self.details.clear("Select a case to view its stored evidence")
+            self._render_active_chip()
+            return
+
+        self._selected_case_id = record.get("case_id")
+        identity = self.details.section("identity", "Case")
+        identity.add_row("Name", record.get("name"))
+        identity.add_row("Case ID", shorten_hash(record.get("case_id"), 12, 8), mono=True)
+        identity.add_row("Created", format_datetime(record.get("created_at")))
+        identity.add_row("Description", record.get("description") or "No description")
+
+        evidence = self.details.section("evidence", "Stored evidence")
+        evidence.add_row("Scans", str(record.get("scan_count", 0)))
+        evidence.add_row("Files", str(record.get("file_count", 0)))
+        evidence.add_row("Fragments", str(record.get("fragment_count", 0)))
+        evidence.add_row("Relationships", str(record.get("relationship_count", 0)))
+        evidence.add_row("Reconstructions", str(record.get("reconstruction_count", 0)))
+        evidence.add_row("Reports", str(record.get("report_count", 0)))
+        evidence.add_row("Last scan", format_datetime(record.get("last_scan_at")))
+
+        scan_ids = record.get("scan_ids") or []
+        if scan_ids:
+            scans = self.details.section("scans", "Scans")
+            shown = scan_ids[-8:]
+            for scan_id in shown:
+                scans.add_row(
+                    "Scan", shorten_hash(scan_id, 12, 8), mono=True
+                )
+            if len(scan_ids) > len(shown):
+                scans.add_row("More", f"{len(scan_ids) - len(shown)} earlier scan(s)")
+
+        self.status_label.setText(
+            f"{record.get('name')}: {record.get('scan_count', 0)} scan(s), "
+            f"{record.get('file_count', 0)} file(s), "
+            f"{record.get('fragment_count', 0)} fragment(s)."
+        )
+        self._render_active_chip()
+
+    def _on_open_case(self):
+        record = self.table.current_record()
+        if not record:
+            return
+        case_id = record.get("case_id")
+        if not case_id:
+            return
+        SESSION.set_case(case_id, record.get("name"))
+        if record.get("scan_ids"):
+            SESSION.set_scan(record["scan_ids"][0])
+        SESSION.log_activity(f"Opened case {record.get('name')}", "case")
+        self._render_active_chip()
+        self.case_selected.emit(case_id)
+
     def _create_case(self):
         dialog = CreateCaseDialog(self)
-        if dialog.exec() == QDialog.Accepted:
-            data = dialog.get_case_data()
-            try:
-                case_id = str(uuid.uuid4())
-                create_case(case_id, data["name"], data["description"])
-                self._load_cases()
-                
-                # Select the newly created case
-                self._selected_case_id = case_id
-                self._populate_table()
-                self.case_selected.emit(case_id)
-            except Exception as e:
-                QMessageBox.critical(self, "Error", f"Failed to create case: {str(e)}")
-    
-    def _on_select_case(self, case_id: str):
+        if dialog.exec() != QDialog.Accepted:
+            return
+        data = dialog.get_case_data()
+        case_id = str(uuid.uuid4())
+        try:
+            create_case(case_id, data["name"], data["description"])
+        except Exception as exc:
+            QMessageBox.critical(self, "Error", f"Failed to create case: {exc}")
+            return
+
         self._selected_case_id = case_id
-        self.case_selected.emit(case_id)
-        # Update button states
-        for row in range(self.table.rowCount()):
-            widget = self.table.cellWidget(row, 4)
-            if widget:
-                btn = widget.findChild(QPushButton)
-                if btn and btn.property("case_id") == case_id:
-                    btn.setText("Selected")
-                    btn.setEnabled(False)
-                elif btn:
-                    btn.setText("Select")
-                    btn.setEnabled(True)
-    
-    def get_selected_case_id(self):
+        SESSION.set_case(case_id, data["name"])
+        SESSION.log_activity(f"Created case {data['name']}", "case")
+        self.refresh()
+        self._select_record(case_id)
+        self._on_open_case()
+
+    # ----------------------------------------------------------------
+    # Access
+    # ----------------------------------------------------------------
+
+    def get_selected_case_id(self) -> Optional[str]:
         return self._selected_case_id
-    
-    def get_selected_case(self):
-        if self._selected_case_id:
-            return get_case(self._selected_case_id)
-        return None
+
+    def get_selected_case(self) -> Optional[Dict[str, Any]]:
+        if not self._selected_case_id:
+            return None
+        return get_case(self._selected_case_id)

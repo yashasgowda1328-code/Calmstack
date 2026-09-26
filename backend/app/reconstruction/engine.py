@@ -45,12 +45,20 @@ class ReconstructionEngine:
 
     def __init__(
         self,
-        upload_dir: Path = Path("uploads"),
-        output_dir: Path = Path("storage/reconstructed"),
+        upload_dir: Optional[Path] = None,
+        output_dir: Optional[Path] = None,
         fragment_size: int = 4096
     ):
-        self.upload_dir = upload_dir
-        self.output_dir = output_dir
+        try:
+            from app.config import get_uploads_dir, get_reconstructed_dir
+            upload_dir = upload_dir or get_uploads_dir()
+            output_dir = output_dir or get_reconstructed_dir()
+        except ImportError:
+            upload_dir = upload_dir or Path("uploads")
+            output_dir = output_dir or Path("storage/reconstructed")
+
+        self.upload_dir = Path(upload_dir)
+        self.output_dir = Path(output_dir)
         self.fragment_size = fragment_size
         self.output_dir.mkdir(parents=True, exist_ok=True)
 

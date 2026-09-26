@@ -16,7 +16,8 @@ from app.storage.database import (
     save_fragment, save_fragments_bulk, get_fragments_by_scan, get_fragments_by_file,
     save_relationship, save_relationships_bulk, get_relationships_by_scan,
     save_reconstruction, get_reconstruction, get_reconstructions_by_scan,
-    save_report, get_reports_by_case,
+    update_reconstruction_result,
+    save_report, create_report, get_reports_by_case,
     persist_scan_result
 )
 
@@ -32,13 +33,18 @@ def isolated_test_db(tmp_path):
 
     Each database test starts with a fresh, uniquely-named database file so
     that hardcoded IDs (CASE_001, SCAN_001, ...) never collide across runs or
-    repeated pytest invocations. Production database behavior is unchanged.
+    repeated pytest invocations. The original DB_PATH is restored afterwards so
+    later tests in the same process still read the real database.
     """
     import app.storage.database as db_module
+    original_db_path = db_module.DB_PATH
     test_db = tmp_path / "test_reconstructai.db"
     db_module.DB_PATH = test_db
     initialize_database()
-    yield
+    try:
+        yield
+    finally:
+        db_module.DB_PATH = original_db_path
 
 
 def setup_test_db():
@@ -383,6 +389,91 @@ def test_report_operations():
     print(f"Retrieved {len(reports)} reports for case")
     
     print("PASS")
+    return True
+
+
+def test_create_report_stores_descriptive_fields():
+    """create_report keeps investigator feedback in the report_data payload."""
+    create_case("CASE_009", "Feedback Test Case")
+    create_scan("SCAN_009", "CASE_009", "completed")
+
+    create_report(
+        report_id="REPORT_009",
+        case_id="CASE_009",
+        report_type="useful_feedback",
+        scan_id="SCAN_009",
+        filename="evidence.png",
+        file_path="uploads/evidence.png",
+        file_type="PNG image",
+        mime_type="image/png",
+        relevance_score=0.42,
+        ai_classification="LOW_RELEVANCE",
+        detection_result="UNANALYZED",
+        user_reason="Header intact, payload still useful",
+        report_status="SUBMITTED",
+    )
+
+    stored = get_reports_by_case("CASE_009")
+    assert len(stored) == 1
+    payload = stored[0]["report_data"]
+    assert stored[0]["report_id"] == "REPORT_009"
+    assert stored[0]["scan_id"] == "SCAN_009"
+    assert payload["report_type"] == "useful_feedback"
+    assert payload["filename"] == "evidence.png"
+    assert payload["ai_classification"] == "LOW_RELEVANCE"
+    assert payload["report_status"] == "SUBMITTED"
+
+    from app.ui import data as view
+
+    records = view.report_records(view.load_inventory())
+    matching = [r for r in records if r["report_id"] == "REPORT_009"]
+    assert len(matching) == 1
+    assert matching[0]["report_type"] == "useful_feedback"
+    assert matching[0]["filename"] == "evidence.png"
+    assert matching[0]["user_reason"] == "Header intact, payload still useful"
+    assert matching[0]["case_name"] == "Feedback Test Case"
+    return True
+
+
+def test_update_reconstruction_result_preserves_candidate():
+    """Recording a reconstruction outcome keeps the stored candidate scores."""
+    create_case("CASE_010", "Reconstruction Outcome Case")
+    create_scan("SCAN_010", "CASE_010", "completed")
+    save_reconstruction(
+        reconstruction_id="R010",
+        scan_id="SCAN_010",
+        fragment_ids=["F010"],
+        integrity_score=0.81,
+        confidence_score=0.74,
+        evidence_quality="MEDIUM",
+        priority="MEDIUM",
+        status="CANDIDATE",
+    )
+    created = get_reconstruction("R010")["created_at"]
+
+    update_reconstruction_result(
+        reconstruction_id="R010",
+        status="RECONSTRUCTED",
+        output_path="storage/reconstructed/R010.bin",
+        output_sha256="hash_010",
+        output_size=2048,
+        output_entropy=6.2,
+        output_file_type="data",
+        output_mime_type="application/octet-stream",
+        validation_status="VALID",
+        validation_details={"structurally_valid": True},
+    )
+
+    updated = get_reconstruction("R010")
+    assert updated["status"] == "RECONSTRUCTED"
+    assert updated["output_sha256"] == "hash_010"
+    assert updated["output_size"] == 2048
+    assert updated["validation_status"] == "VALID"
+    assert updated["validation_details"]["structurally_valid"] is True
+    assert updated["integrity_score"] == 0.81
+    assert updated["confidence_score"] == 0.74
+    assert updated["fragment_ids"] == ["F010"]
+    assert updated["created_at"] == created
     return True
 
 
