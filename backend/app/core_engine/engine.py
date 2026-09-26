@@ -29,6 +29,7 @@ from app.reconstruction.validator import StructuralValidator, StructuralValidati
 from app.storage.database import (
     initialize_database, create_case, create_scan, update_scan_status,
     save_file, save_fragments_bulk, save_relationships_bulk, save_reconstruction,
+    update_reconstruction_result,
     persist_scan_result, get_database_stats
 )
 from app.models.scan import Fragment, Relationship, ReconstructionCandidate, ScanResult
@@ -73,6 +74,7 @@ class ScanWorkflowResult:
     relationships: List[Dict[str, Any]]
     reconstructions: List[Dict[str, Any]]
     relevance_scores: Dict[str, Dict[str, Any]] = field(default_factory=dict)
+    relevance_error: Optional[str] = None
     error: Optional[str] = None
 
 
@@ -108,14 +110,22 @@ class CoreEngine:
     
     def __init__(
         self,
-        upload_dir: Path = Path("uploads"),
-        output_dir: Path = Path("storage/reconstructed"),
+        upload_dir: Optional[Path] = None,
+        output_dir: Optional[Path] = None,
         fragment_size: int = FRAGMENT_SIZE,
         relationship_threshold: float = 0.70,
         use_ml_scoring: bool = True
     ):
-        self.upload_dir = upload_dir
-        self.output_dir = output_dir
+        try:
+            from app.config import get_uploads_dir, get_reconstructed_dir
+            upload_dir = upload_dir or get_uploads_dir()
+            output_dir = output_dir or get_reconstructed_dir()
+        except ImportError:
+            upload_dir = upload_dir or Path("uploads")
+            output_dir = output_dir or Path("storage/reconstructed")
+
+        self.upload_dir = Path(upload_dir)
+        self.output_dir = Path(output_dir)
         self.fragment_size = fragment_size
         self.relationship_threshold = relationship_threshold
         self.use_ml_scoring = use_ml_scoring
@@ -133,6 +143,14 @@ class CoreEngine:
         
         # Initialize AI relevance model
         self.relevance_model = create_relevance_model() if use_ml_scoring else None
+        self.relevance_error: Optional[str] = None
+        if use_ml_scoring and self.relevance_model is None:
+            from app.ai.fragment_relevance import relevance_model_unavailable_reason
+
+            self.relevance_error = (
+                relevance_model_unavailable_reason()
+                or "the AI relevance model could not be trained"
+            )
         
         # Progress callback
         self._progress_callback: Optional[Callable[[WorkflowProgress], None]] = None
@@ -201,6 +219,7 @@ class CoreEngine:
         Add evidence file to a case by copying to uploads.
         Returns scan_id.
         """
+        evidence_path = Path(evidence_path)
         # Generate scan ID
         scan_id = str(uuid.uuid4())
         
@@ -253,17 +272,8 @@ class CoreEngine:
     def run_scan(self, case_id: str, evidence_path: Path) -> ScanWorkflowResult:
         """
         Execute complete scan workflow on evidence.
-        
-        Pipeline:
-        1. Create scan
-        2. Analyze evidence
-        3. Extract fragments
-        4. Calculate relationships
-        5. Generate reconstruction candidates
-        6. Validate candidates
-        7. Prioritize candidates
-        8. Persist results
         """
+        evidence_path = Path(evidence_path)
         scan_id = str(uuid.uuid4())
         self._current_scan_id = scan_id
         self._current_case_id = case_id
@@ -434,7 +444,8 @@ class CoreEngine:
                 } for c in candidates],
                 relevance_scores={
                     fid: r.to_dict() for fid, r in relevance_results.items()
-                }
+                },
+                relevance_error=self.relevance_error
             )
             
             return result
@@ -524,7 +535,24 @@ class CoreEngine:
             
             self._emit_progress(EngineStatus.COMPLETED, "completed",
                               "Reconstruction completed", 100.0)
-            
+
+            # Stage: Persist the artifact outcome so Recovered views show it
+            validation_details = dict(result.validation or {})
+            if structural_validation:
+                validation_details["structural_validation"] = structural_validation
+            update_reconstruction_result(
+                reconstruction_id=reconstruction_id,
+                status=result.status,
+                output_path=result.output_path or None,
+                output_sha256=result.sha256 or None,
+                output_size=result.output_size,
+                output_entropy=result.entropy,
+                output_file_type=result.file_type,
+                output_mime_type=result.mime_type,
+                validation_status=(structural_validation or {}).get("validation_status"),
+                validation_details=validation_details or None
+            )
+
             return ReconstructionWorkflowResult(
                 reconstruction_id=reconstruction_id,
                 status=result.status,
@@ -537,6 +565,15 @@ class CoreEngine:
         except Exception as e:
             self._emit_progress(EngineStatus.FAILED, "reconstruct",
                               f"Reconstruction failed: {str(e)}", 0.0, {"error": str(e)})
+            try:
+                update_reconstruction_result(
+                    reconstruction_id=reconstruction_id,
+                    status="FAILED",
+                    validation_status="FAILED",
+                    validation_details={"error": str(e)}
+                )
+            except Exception:
+                pass
             return ReconstructionWorkflowResult(
                 reconstruction_id=reconstruction_id,
                 status="failed",
@@ -557,18 +594,51 @@ class CoreEngine:
         return get_database_stats()
     
     def _score_fragment_relevance(self, fragments: List[Fragment]) -> Dict[str, FragmentRelevanceResult]:
-        """Score fragments for relevance using AI model."""
+        """Score fragments for relevance using AI model.
+
+        When the model cannot run, the reason is recorded and reported through
+        the workflow instead of returning an empty mapping: each real fragment
+        gets the neutral UNCERTAIN result already used for unscored fragments
+        elsewhere in this engine.
+        """
         if not self.relevance_model:
-            return {}
-        
+            self.relevance_error = self.relevance_model_error or (
+                "AI relevance scoring is disabled (use_ml_scoring=False)"
+            )
+            self._emit_progress(
+                EngineStatus.SCORING_RELEVANCE, "relevance_scoring",
+                f"AI relevance unavailable: {self.relevance_error}", 45.0,
+                {"error": self.relevance_error},
+            )
+            return self._neutral_relevance(fragments)
+
         try:
             results = {}
             relevance_results = self.relevance_model.score_fragments(fragments)
             for result in relevance_results:
                 results[result.fragment_id] = result
+            self.relevance_error = None
             return results
-        except Exception:
-            return {}
+        except Exception as exc:
+            self.relevance_error = f"AI relevance scoring failed: {type(exc).__name__}: {exc}"
+            self._emit_progress(
+                EngineStatus.SCORING_RELEVANCE, "relevance_scoring",
+                self.relevance_error, 45.0, {"error": self.relevance_error},
+            )
+            return self._neutral_relevance(fragments)
+
+    @staticmethod
+    def _neutral_relevance(fragments: List[Fragment]) -> Dict[str, FragmentRelevanceResult]:
+        """Neutral per-fragment result used when the model cannot score."""
+        return {
+            fragment.fragment_id: FragmentRelevanceResult(
+                fragment_id=fragment.fragment_id,
+                relevance_score=0.5,
+                relevance_class="UNCERTAIN",
+                confidence=0.0,
+            )
+            for fragment in fragments
+        }
     
     def _rank_by_relevance(
         self, 

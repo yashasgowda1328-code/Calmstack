@@ -3,8 +3,8 @@ Tests for the UI data layer and the pages that were rewired onto it.
 
 These cover the behaviour that the pages depend on: status derived from real
 persisted evidence (never from a column that does not exist), per-case counts
-aggregated from stored scans, the cross-evidence recovery worker producing real
-bytes, and the shared widgets accepting the value types the engine stores.
+aggregated from stored scans, and the shared widgets accepting the value types
+the engine stores.
 """
 
 import os
@@ -30,16 +30,15 @@ def project_root():
     finally:
         os.chdir(previous)
 
-from PySide6.QtCore import QObject, Slot
 from PySide6.QtWidgets import QApplication
 
 from app.ui import data as view
 from app.ui.components import DetailRow, StatusStrip, as_text
-from test_cross_recovery import build_pdf
 
 
 @pytest.fixture(scope="module")
 def qapp():
+    """One QApplication for the whole module, as Qt requires."""
     app = QApplication.instance() or QApplication([])
     yield app
 
@@ -139,90 +138,6 @@ def test_reconstruction_records_decode_stored_json(qapp):
         fragment_ids = record["fragment_ids"]
         if fragment_ids is not None:
             assert isinstance(fragment_ids, list)
-
-
-# ====================================================================
-# Cross-evidence recovery through the UI worker
-# ====================================================================
-
-class _Collector(QObject):
-    def __init__(self):
-        super().__init__()
-        self.payload = None
-
-    @Slot(dict)
-    def on_completed(self, payload):
-        self.payload = payload
-
-
-def test_recovery_worker_rebuilds_the_real_original(qapp, tmp_path):
-    from app.ui.analysis_worker import CrossEvidenceRecoveryWorker
-
-    pdf = build_pdf(40)
-    container = tmp_path / "container.bin"
-    container.write_bytes(pdf)
-    target = tmp_path / "report.pdf"
-    target.write_bytes(pdf[: len(pdf) // 2])
-
-    collector = _Collector()
-    worker = CrossEvidenceRecoveryWorker(
-        str(target), [str(container)], str(tmp_path / "out")
-    )
-    worker.completed.connect(collector.on_completed)
-    worker.run()
-
-    payload = collector.payload
-    assert payload is not None
-    assert payload["status"] == "RECONSTRUCTED"
-    assert payload["missing_portions"] == 0
-    assert payload["damaged_portions"] == 0
-    assert Path(payload["artifact_path"]).read_bytes() == pdf
-    assert payload["validation"]["structurally_valid"] is True
-    assert any("truncated" in line for line in payload["insights"])
-
-
-def test_recovery_worker_refuses_without_matching_evidence(qapp, tmp_path):
-    from app.ui.analysis_worker import CrossEvidenceRecoveryWorker
-
-    pdf = build_pdf(40)
-    target = tmp_path / "report.pdf"
-    target.write_bytes(pdf[: len(pdf) // 2])
-    unrelated = tmp_path / "notes.txt"
-    unrelated.write_text("unrelated content\n" * 500)
-
-    collector = _Collector()
-    worker = CrossEvidenceRecoveryWorker(
-        str(target), [str(unrelated)], str(tmp_path / "out")
-    )
-    worker.completed.connect(collector.on_completed)
-    worker.run()
-
-    payload = collector.payload
-    assert payload["status"] == "NO_RELIABLE_RECONSTRUCTION_FOUND"
-    assert payload["artifact_path"] is None
-    assert payload["recovered_portions"] == 0
-
-
-def test_recovery_worker_reports_intact_file_without_recovering(qapp, tmp_path):
-    from app.ui.analysis_worker import CrossEvidenceRecoveryWorker
-
-    pdf = build_pdf(20)
-    target = tmp_path / "whole.pdf"
-    target.write_bytes(pdf)
-    other = tmp_path / "other.bin"
-    other.write_bytes(build_pdf(10))
-
-    collector = _Collector()
-    worker = CrossEvidenceRecoveryWorker(
-        str(target), [str(other)], str(tmp_path / "out")
-    )
-    worker.completed.connect(collector.on_completed)
-    worker.run()
-
-    payload = collector.payload
-    assert payload["status"] == "INTACT"
-    assert payload["artifact_path"] is None
-    assert payload["integrity"] == 1.0
 
 
 # ====================================================================

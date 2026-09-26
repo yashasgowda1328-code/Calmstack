@@ -44,15 +44,11 @@ class Sidebar(QWidget):
     NAV_ITEMS = [
         ("dashboard", "Dashboard", "▦", "Workspace"),
         ("evidence", "Evidence", "▣", "Workspace"),
-        ("all_files", "All Files", "≡", "Workspace"),
-        ("healthy", "Healthy", "◍", "Findings"),
-        ("suspicious", "Suspicious", "◐", "Findings"),
-        ("corrupted", "Corrupted", "◌", "Findings"),
-        ("fragments", "Fragments", "⬡", "Findings"),
+        ("recovery", "Recovery", "⬡", "Recovery"),
+        ("deleted_recovery", "Deleted Data", "◫", "Recovery"),
         ("recovered", "Recovered", "◆", "Recovery"),
-        ("deleted_recovery", "Deleted Data Recovery", "◫", "Recovery"),
-        ("reports", "Reports", "▤", "Review"),
-        ("cases", "Cases", "◫", "Review"),
+        ("reports", "Reports", "▤", "Analysis"),
+        ("cases", "Cases", "◫", "Analysis"),
     ]
 
     #: Components shown in the sidebar health area.

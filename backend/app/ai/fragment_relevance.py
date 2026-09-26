@@ -22,8 +22,10 @@ try:
     from sklearn.ensemble import RandomForestClassifier
     from sklearn.preprocessing import StandardScaler
     SKLEARN_AVAILABLE = True
-except ImportError:
+    SKLEARN_IMPORT_ERROR = ""
+except ImportError as exc:  # reported instead of silently disabling scoring
     SKLEARN_AVAILABLE = False
+    SKLEARN_IMPORT_ERROR = f"{type(exc).__name__}: {exc}"
 
 from app.models.scan import Fragment
 
@@ -528,6 +530,17 @@ class FragmentRelevanceModel:
         with open(self.model_path, "w") as f:
             json.dump(metadata, f, indent=2)
         return True
+
+
+def relevance_model_unavailable_reason() -> Optional[str]:
+    """Explain why the AI relevance model cannot be built, or None when it can.
+
+    Callers use this to report the real problem instead of degrading to an
+    empty relevance result.
+    """
+    if not SKLEARN_AVAILABLE:
+        return f"scikit-learn is not installed ({SKLEARN_IMPORT_ERROR})"
+    return None
 
 
 def create_relevance_model() -> Optional[FragmentRelevanceModel]:

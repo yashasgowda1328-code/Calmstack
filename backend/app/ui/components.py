@@ -938,3 +938,120 @@ class ForensicTable(QTableWidget):
         needle = (text or "").strip().lower()
         for row, record in enumerate(self._records):
             self.setRowHidden(row, bool(needle) and needle not in self.search_text(record))
+
+
+class FragmentTimelineWidget(QFrame):
+    """Clean ordered timeline/list for fragments (e.g. F001 -> F007 -> F003)."""
+
+    def __init__(self, parent=None):
+        super().__init__(parent)
+        self.setObjectName("elevatedPanel")
+        self._layout = QVBoxLayout(self)
+        self._layout.setContentsMargins(12, 10, 12, 10)
+        self._layout.setSpacing(4)
+
+    def set_fragments(self, fragments: List[Dict[str, Any]]):
+        while self._layout.count():
+            item = self._layout.takeAt(0)
+            if item.widget():
+                item.widget().deleteLater()
+
+        if not fragments:
+            lbl = QLabel("No fragments extracted")
+            lbl.setObjectName("mutedLabel")
+            self._layout.addWidget(lbl)
+            return
+
+        for idx, frag in enumerate(fragments):
+            row = QWidget()
+            row_layout = QHBoxLayout(row)
+            row_layout.setContentsMargins(0, 2, 0, 2)
+            row_layout.setSpacing(8)
+
+            fid = f"F{idx+1:03d}"
+            lbl_id = QLabel(fid)
+            lbl_id.setObjectName("monoValue")
+            lbl_id.setStyleSheet(f"color: {COLORS['accent_primary']}; font-weight: 600; font-size: 11px;")
+            row_layout.addWidget(lbl_id, 0)
+
+            offset_val = format_offset(frag.get("offset"))
+            size_val = format_size(frag.get("size"))
+            lbl_info = QLabel(f"{offset_val}  │  {size_val}")
+            lbl_info.setObjectName("monoValue")
+            lbl_info.setStyleSheet("font-size: 11px;")
+            row_layout.addWidget(lbl_info, 1)
+
+            rel_score = frag.get("relevance_score")
+            rel_class = frag.get("relevance_class") or frag.get("ai_classification")
+            chip_text = str(rel_class).replace("_RELEVANCE", "").title() if rel_class else (f"{rel_score:.2f}" if rel_score is not None else "Normal")
+            token = "HEALTHY" if "HIGH" in str(rel_class) else ("SUSPICIOUS" if "UNCERTAIN" in str(rel_class) else "UNANALYZED")
+            chip = StatusChip(chip_text, token)
+            row_layout.addWidget(chip, 0)
+
+            self._layout.addWidget(row)
+
+            if idx < len(fragments) - 1:
+                arrow = QLabel("↓")
+                arrow.setAlignment(Qt.AlignCenter)
+                arrow.setStyleSheet(f"color: {COLORS['text_muted']}; font-size: 11px; margin: 0;")
+                self._layout.addWidget(arrow)
+
+
+class StepProgressWidget(QFrame):
+    """Linear workflow step indicator for reconstruction and recovery state."""
+
+    DEFAULT_STEPS = [
+        "Analyzing fragments",
+        "Evaluating relationships",
+        "Determining order",
+        "Reconstructing",
+        "Validating",
+        "Complete"
+    ]
+
+    def __init__(self, steps: Optional[List[str]] = None, parent=None):
+        super().__init__(parent)
+        self.setObjectName("elevatedPanel")
+        self._steps = steps or self.DEFAULT_STEPS
+        self._current_step = 0
+
+        self._layout = QVBoxLayout(self)
+        self._layout.setContentsMargins(14, 12, 14, 12)
+        self._layout.setSpacing(6)
+        self._step_labels = []
+
+        self._build_ui()
+
+    def _build_ui(self):
+        for idx, step_name in enumerate(self._steps):
+            row = QWidget()
+            row_layout = QHBoxLayout(row)
+            row_layout.setContentsMargins(0, 2, 0, 2)
+            row_layout.setSpacing(10)
+
+            dot = StatusDot(COLORS["text_muted"])
+            lbl = QLabel(step_name)
+            lbl.setObjectName("bodyLabel")
+            lbl.setStyleSheet("font-size: 12px;")
+
+            row_layout.addWidget(dot)
+            row_layout.addWidget(lbl, 1)
+
+            self._layout.addWidget(row)
+            self._step_labels.append((dot, lbl))
+
+        self.set_step(0)
+
+    def set_step(self, step_idx: int):
+        self._current_step = max(0, min(len(self._steps) - 1, step_idx))
+        for idx, (dot, lbl) in enumerate(self._step_labels):
+            if idx < self._current_step:
+                dot.set_color(COLORS["accent_primary"])
+                lbl.setStyleSheet(f"color: {COLORS['text_primary']}; font-weight: 500;")
+            elif idx == self._current_step:
+                dot.set_color(COLORS["warning"])
+                lbl.setStyleSheet(f"color: {COLORS['warning']}; font-weight: 600;")
+            else:
+                dot.set_color(COLORS["text_muted"])
+                lbl.setStyleSheet(f"color: {COLORS['text_muted']}; font-weight: 400;")
+

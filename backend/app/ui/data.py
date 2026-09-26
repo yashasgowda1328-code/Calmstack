@@ -214,14 +214,17 @@ def load_inventory() -> Inventory:
 # File records
 # ====================================================================
 
-def file_statuses(inventory: Inventory, scan_id: Optional[str] = None) -> Dict[str, str]:
+def file_statuses(inventory: Inventory, scan_id: Optional[str] = None) -> Dict[Any, str]:
     """Derived status per file_id for one scan (or every scan)."""
-    statuses: Dict[str, str] = {}
+    statuses: Dict[Any, str] = {}
     rows = inventory.files_by_scan.get(scan_id, []) if scan_id else inventory.files
 
     for row in rows:
+        file_id = row.get("file_id")
         file_scan = row.get("scan_id")
-        fragments = inventory.fragments_by_scan.get(file_scan, [])
+        scan_fragments = inventory.fragments_by_scan.get(file_scan, [])
+        file_fragments = [f for f in scan_fragments if f.get("file_id") == file_id] if file_id else scan_fragments
+        fragments = file_fragments if file_fragments else scan_fragments
         relationships = inventory.relationships_by_scan.get(file_scan, [])
         reconstructions = inventory.reconstructions_by_scan.get(file_scan, [])
         null_ratios = [
@@ -231,7 +234,7 @@ def file_statuses(inventory: Inventory, scan_id: Optional[str] = None) -> Dict[s
             )
             if ratio is not None
         ]
-        statuses[row.get("file_id")] = derive_file_status(
+        status = derive_file_status(
             fragment_count=len(fragments),
             relationship_scores=[
                 r.get("relationship_score") or 0.0 for r in relationships
@@ -242,6 +245,9 @@ def file_statuses(inventory: Inventory, scan_id: Optional[str] = None) -> Dict[s
             entropy=row.get("entropy"),
             null_ratios=null_ratios,
         )
+        if file_id:
+            statuses[file_id] = status
+            statuses[(file_id, file_scan)] = status
     return statuses
 
 
@@ -290,7 +296,7 @@ def file_records(inventory: Optional[Inventory] = None, scan_id: Optional[str] =
             "mime_type": row.get("mime_type"),
             "entropy": row.get("entropy"),
             "analysis": row.get("analysis_data"),
-            "status": statuses.get(row.get("file_id")) or "UNANALYZED",
+            "status": statuses.get((row.get("file_id"), file_scan)) or statuses.get(row.get("file_id")) or "UNANALYZED",
             "scan_status": scan.get("status"),
             "created_at": row.get("created_at") or scan.get("created_at"),
             "fragment_count": len(fragments),
@@ -396,62 +402,133 @@ def reconstruction_records(inventory: Optional[Inventory] = None, scan_id: Optio
 
 
 def reconstructed_root() -> Path:
-    return Path("storage/reconstructed")
+    try:
+        from app.config import get_reconstructed_dir
+        return get_reconstructed_dir()
+    except ImportError:
+        return Path("storage/reconstructed")
 
 
 def recovered_artifact_records(inventory: Optional[Inventory] = None) -> List[Dict[str, Any]]:
-    """View model for artifacts that physically exist in storage/reconstructed.
+    """View model for ONLY actual successful or partial reconstruction artifacts.
 
-    Metadata comes from the artifact on disk; confidence / integrity /
-    validation are attached from the reconstruction record when the stored
-    output hash matches, otherwise they stay unavailable.
+    Strictly enforces recovery state separation:
+    - Only valid reconstruction records with status RECONSTRUCTED, PARTIALLY_RECONSTRUCTED,
+      RECOVERED, or PARTIALLY_RECOVERABLE where the output file physically exists on disk.
+    - Deduplicates redundant records pointing to the same artifact by content hash SHA-256
+      and path, maintaining genuine distinct artifacts.
     """
     import hashlib
 
     inventory = inventory or load_inventory()
-    root = reconstructed_root()
+    valid_statuses = ("RECONSTRUCTED", "PARTIALLY_RECONSTRUCTED", "RECOVERED", "PARTIALLY_RECOVERABLE")
 
     by_hash: Dict[str, Dict[str, Any]] = {}
     for row in inventory.reconstructions:
-        if row.get("output_sha256"):
+        if row.get("status") in valid_statuses and row.get("output_sha256"):
             by_hash[row["output_sha256"]] = row
 
     records: List[Dict[str, Any]] = []
-    if not root.exists():
-        return records
+    seen_identities = set()
 
-    for path in sorted(root.iterdir(), key=lambda p: p.stat().st_mtime if p.exists() else 0, reverse=True):
-        if not path.is_file():
+    # First collect valid reconstructions from database
+    for recon in sorted(inventory.reconstructions, key=lambda r: r.get("created_at") or "", reverse=True):
+        if recon.get("status") not in valid_statuses:
             continue
+        out_path = Path(recon.get("output_path") or "")
+        if not out_path.exists() or not out_path.is_file() or out_path.stat().st_size == 0:
+            continue
+
         try:
-            stat = path.stat()
-            digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            digest = recon.get("output_sha256")
+            if not digest:
+                digest = hashlib.sha256(out_path.read_bytes()).hexdigest()
         except OSError:
             continue
 
-        linked = by_hash.get(digest)
+        identity = (digest, str(out_path.resolve()))
+        if identity in seen_identities:
+            continue
+        seen_identities.add(identity)
+
+        st = recon.get("status")
+        status_norm = "PARTIALLY RECOVERED" if st in ("PARTIALLY_RECONSTRUCTED", "PARTIALLY_RECOVERABLE") else "RECOVERED"
+        frag_ids = recon.get("fragment_ids") or []
+
         records.append({
-            "artifact_id": linked.get("reconstruction_id") if linked else path.stem,
-            "name": path.name,
-            "path": str(path),
-            "size": stat.st_size,
+            "artifact_id": recon.get("reconstruction_id") or out_path.stem,
+            "name": out_path.name,
+            "path": str(out_path),
+            "size": out_path.stat().st_size,
             "sha256": digest,
-            "detected_type": (linked or {}).get("output_file_type"),
-            "mime_type": (linked or {}).get("output_mime_type"),
-            "entropy": (linked or {}).get("output_entropy"),
-            "status": (linked or {}).get("status") or "RECONSTRUCTED",
-            "confidence": (linked or {}).get("confidence_score"),
-            "integrity": (linked or {}).get("integrity_score"),
-            "validation_status": (linked or {}).get("validation_status"),
-            "reconstruction_id": (linked or {}).get("reconstruction_id"),
-            "validation_details": (linked or {}).get("validation_details"),
-            "scan_id": (linked or {}).get("scan_id"),
+            "detected_type": recon.get("output_file_type") or "Unknown",
+            "mime_type": recon.get("output_mime_type") or "application/octet-stream",
+            "entropy": recon.get("output_entropy"),
+            "status": status_norm,
+            "raw_status": st,
+            "confidence": recon.get("confidence_score"),
+            "integrity": recon.get("integrity_score"),
+            "validation_status": recon.get("validation_status") or "Valid",
+            "fragment_count": len(frag_ids) if isinstance(frag_ids, list) else 0,
+            "reconstruction_id": recon.get("reconstruction_id"),
+            "validation_details": recon.get("validation_details"),
+            "scan_id": recon.get("scan_id"),
             "case_name": inventory.case_name(
-                inventory.scans_by_id.get((linked or {}).get("scan_id"), {}).get("case_id")
+                inventory.scans_by_id.get(recon.get("scan_id"), {}).get("case_id")
             ),
-            "modified": stat.st_mtime,
-            "linked": bool(linked),
+            "modified": out_path.stat().st_mtime,
+            "linked": True,
         })
+
+    # Also scan storage/reconstructed for files linked via SHA-256 to a valid reconstruction
+    root = reconstructed_root()
+    if root.exists():
+        for path in sorted(root.iterdir(), key=lambda p: p.stat().st_mtime if p.exists() else 0, reverse=True):
+            if not path.is_file() or path.stat().st_size == 0:
+                continue
+            try:
+                digest = hashlib.sha256(path.read_bytes()).hexdigest()
+            except OSError:
+                continue
+
+            identity = (digest, str(path.resolve()))
+            if identity in seen_identities:
+                continue
+
+            linked = by_hash.get(digest)
+            if not linked:
+                continue  # Strictly do NOT show unlinked/un-reconstructed files!
+
+            seen_identities.add(identity)
+            st = linked.get("status")
+            status_norm = "PARTIALLY RECOVERED" if st in ("PARTIALLY_RECONSTRUCTED", "PARTIALLY_RECOVERABLE") else "RECOVERED"
+            frag_ids = linked.get("fragment_ids") or []
+
+            records.append({
+                "artifact_id": linked.get("reconstruction_id") or path.stem,
+                "name": path.name,
+                "path": str(path),
+                "size": path.stat().st_size,
+                "sha256": digest,
+                "detected_type": linked.get("output_file_type") or "Unknown",
+                "mime_type": linked.get("output_mime_type") or "application/octet-stream",
+                "entropy": linked.get("output_entropy"),
+                "status": status_norm,
+                "raw_status": st,
+                "confidence": linked.get("confidence_score"),
+                "integrity": linked.get("integrity_score"),
+                "validation_status": linked.get("validation_status") or "Valid",
+                "fragment_count": len(frag_ids) if isinstance(frag_ids, list) else 0,
+                "reconstruction_id": linked.get("reconstruction_id"),
+                "validation_details": linked.get("validation_details"),
+                "scan_id": linked.get("scan_id"),
+                "case_name": inventory.case_name(
+                    inventory.scans_by_id.get(linked.get("scan_id"), {}).get("case_id")
+                ),
+                "modified": path.stat().st_mtime,
+                "linked": True,
+            })
+
     return records
 
 
@@ -545,25 +622,34 @@ def report_records(inventory: Optional[Inventory] = None) -> List[Dict[str, Any]
         payload = row.get("report_data")
         if payload:
             payload = _decode_json(payload)
+        if not isinstance(payload, dict):
+            payload = {}
+
+        def field(key, default=None):
+            value = row.get(key)
+            if value is None or value == "":
+                value = payload.get(key)
+            return default if value is None or value == "" else value
+
         records.append({
             "report_id": row.get("report_id"),
-            "report_type": row.get("report_type") or "recovery",
+            "report_type": field("report_type", "recovery"),
             "case_id": row.get("case_id"),
             "case_name": inventory.case_name(row.get("case_id")),
             "scan_id": row.get("scan_id"),
             "reconstruction_id": row.get("reconstruction_id"),
-            "filename": row.get("filename"),
-            "file_path": row.get("file_path"),
-            "file_type": row.get("file_type"),
-            "mime_type": row.get("mime_type"),
-            "relevance_score": row.get("relevance_score"),
-            "ai_classification": row.get("ai_classification"),
-            "detection_result": row.get("detection_result"),
-            "user_reason": row.get("user_reason"),
-            "report_status": row.get("report_status"),
+            "filename": field("filename"),
+            "file_path": field("file_path"),
+            "file_type": field("file_type"),
+            "mime_type": field("mime_type"),
+            "relevance_score": field("relevance_score"),
+            "ai_classification": field("ai_classification"),
+            "detection_result": field("detection_result"),
+            "user_reason": field("user_reason"),
+            "report_status": field("report_status"),
             "created_at": row.get("created_at"),
             "report_path": row.get("report_path"),
-            "report_data": payload,
+            "report_data": payload or None,
         })
     return records
 

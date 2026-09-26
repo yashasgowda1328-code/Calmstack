@@ -85,25 +85,12 @@ class MainWindow(QMainWindow):
         self.pages["evidence"].folder_selected.connect(self._on_folder_selected)
         self.content_stack.addWidget(self.pages["evidence"])
         
-        # All Files (filtered view of the evidence dataset)
-        self.pages["all_files"] = FilteredFilesPage("All Files", None, "All files across all cases")
-        self.content_stack.addWidget(self.pages["all_files"])
-        
-        # Status filter pages
-        for status in ["healthy", "suspicious", "corrupted"]:
-            self.pages[status] = FilteredFilesPage(
-                status.capitalize(),
-                status.upper(),
-                f"Files classified as {status}"
-            )
-            self.content_stack.addWidget(self.pages[status])
-        
-        # Fragments page
-        self.pages["fragments"] = FragmentsPage()
-        self.content_stack.addWidget(self.pages["fragments"])
+        # Recovery / Reconstruct
+        self.pages["recovery"] = self.pages["evidence"]
         
         # Recovered
         self.pages["recovered"] = RecoveredPage()
+        self.pages["recovered"].view_evidence_requested.connect(lambda: self._show_page("evidence"))
         self.content_stack.addWidget(self.pages["recovered"])
         
         # Deleted Data Recovery
@@ -117,7 +104,7 @@ class MainWindow(QMainWindow):
         self.pages["reports"] = ReportsPage()
         self.content_stack.addWidget(self.pages["reports"])
         
-        # Cases (reusing existing)
+        # Cases
         self.pages["cases"] = CasesPage()
         self.pages["cases"].case_selected.connect(self._on_case_selected)
         self.content_stack.addWidget(self.pages["cases"])

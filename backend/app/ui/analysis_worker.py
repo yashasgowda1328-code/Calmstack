@@ -281,13 +281,22 @@ class CrossEvidenceRecoveryWorker(QThread):
         self._cancelled = True
 
     def run(self):
-        from app.reconstruction.cross_recovery import (
-            PORTION_SIZE,
-            CrossEvidenceRecovery,
-            RecoveryResult,
-            detect_damage,
-        )
-        from app.routes.scan import calculate_sha256
+        try:
+            from app.reconstruction.cross_recovery import (
+                CrossEvidenceRecovery,
+                RecoveryResult,
+            )
+        except Exception as exc:
+            # A broken recovery pipeline must be reported, never swallowed.
+            traceback.print_exc()
+            self.completed.emit({
+                "status": "NO_RELIABLE_RECONSTRUCTION",
+                "target_path": self.target_path,
+                "artifact_path": None,
+                "insights": [],
+                "error": f"Recovery engine unavailable: {type(exc).__name__}: {exc}",
+            })
+            return
 
         target = Path(self.target_path)
         try:
@@ -306,29 +315,9 @@ class CrossEvidenceRecoveryWorker(QThread):
         self.progress.emit("Reading target evidence", 10)
         self.stage_changed.emit("detect_damage", "Detecting damage")
 
-        damage = detect_damage(data)
-        kinds = ", ".join(finding.kind for finding in damage) or "none"
-        self.progress.emit(f"Damage detected: {kinds}", 30)
-
-        if not damage:
-            result = RecoveryResult(
-                target_path=str(target),
-                target_size=len(data),
-                target_sha256=calculate_sha256(data),
-                detected_type=None,
-                status="INTACT",
-                expected_portions=len(range(0, len(data), PORTION_SIZE)),
-                intact_portions=len(range(0, len(data), PORTION_SIZE)),
-                integrity=1.0,
-                original_bytes=len(data),
-                recovered_bytes=len(data),
-            )
-            result.insights.append(
-                "The file is complete, so no cross-evidence recovery was needed."
-            )
-            self.completed.emit(result.to_dict())
-            return
-
+        # The engine decides whether the file is intact: it compares the target
+        # against the real evidence, so a file whose damage is only visible by
+        # comparison is not reported as intact here.
         self.stage_changed.emit("index_evidence", "Indexing evidence")
         self.progress.emit(
             f"Indexing {len(self.evidence_paths)} evidence file(s)", 45
